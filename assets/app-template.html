@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<!-- idea-to-app 交付物样板：单文件、双击可用、无需网络。
+     开发工程师以此为起点定制：改标题/文案/配色/功能，保留"数据保存 + 备份/恢复"骨架。
+     约定：有用户数据的应用必须保留"导出备份"和"恢复"功能（质量底线，G3 会机器检查）。 -->
+<html lang="zh">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>我的小助手</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
+    font-size: 18px; line-height: 1.6;
+    background: #f5f6f8; color: #222;
+    max-width: 640px; margin: 0 auto; padding: 16px;
+  }
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+  h1 { font-size: 24px; }
+  .btn {
+    display: inline-block; border: none; border-radius: 10px; cursor: pointer;
+    padding: 12px 20px; font-size: 18px; background: #2f6fed; color: #fff;
+  }
+  .btn.green { background: #1d9e55; }
+  .btn.gray { background: #8a94a6; }
+  .btn.small { padding: 8px 14px; font-size: 16px; }
+  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
+  .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px; border-bottom: 1px solid #eee; }
+  .item:last-child { border-bottom: none; }
+  .item .main { font-size: 20px; }
+  .item.done .main { color: #1d9e55; text-decoration: line-through; }
+  .empty { text-align: center; color: #8a94a6; padding: 32px 0; }
+  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  input, select {
+    font-size: 18px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; flex: 1; min-width: 120px;
+  }
+  .tip { color: #8a94a6; font-size: 14px; margin-top: 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="app-title">我的小助手</h1>
+  <button class="btn small gray" onclick="exportData()">导出备份</button>
+</header>
+
+<!-- 空状态：第一次打开时给用户一句友好提示 -->
+<div class="card" id="empty-box" style="display:none">
+  <div class="empty">这里还是空的，先从下面添加一条吧</div>
+</div>
+
+<div class="card" id="list-box"></div>
+
+<div class="card">
+  <form onsubmit="return addItem(event)">
+    <input id="inp-text" type="text" placeholder="填点什么…" required>
+    <button class="btn" type="submit">添加</button>
+  </form>
+  <div class="tip">数据自动保存在电脑里，关掉再打开还在。重要的话点右上角"导出备份"。</div>
+</div>
+
+<div class="card">
+  <button class="btn green" onclick="document.getElementById('restore-file').click()">恢复备份</button>
+  <input id="restore-file" type="file" accept=".json" style="display:none" onchange="importData(event)">
+</div>
+
+<script>
+/* ================= 数据层（保留此骨架，勿删） ================= */
+const KEY = "my-app-data";   // 改成你的应用专属 key
+let items = JSON.parse(localStorage.getItem(KEY) || "[]");
+
+function save() { localStorage.setItem(KEY, JSON.stringify(items)); }
+
+function render() {
+  const list = document.getElementById("list-box");
+  document.getElementById("empty-box").style.display = items.length ? "none" : "";
+  list.innerHTML = items.map((it, i) => `
+    <div class="item ${it.done ? "done" : ""}">
+      <span class="main">${it.text}</span>
+      <span>
+        <button class="btn small ${it.done ? "gray" : "green"}" onclick="toggle(${i})">${it.done ? "已完成" : "完成"}</button>
+        <button class="btn small gray" onclick="removeItem(${i})">删除</button>
+      </span>
+    </div>`).join("");
+}
+
+function addItem(e) {
+  e.preventDefault();
+  const inp = document.getElementById("inp-text");
+  items.push({ text: inp.value, done: false, at: new Date().toISOString() });
+  inp.value = ""; save(); render();
+  return false;
+}
+function toggle(i) { items[i].done = !items[i].done; save(); render(); }
+function removeItem(i) { if (confirm("确定删除这一条吗？")) { items.splice(i, 1); save(); render(); } }
+
+/* 备份/恢复：导出 JSON 文件（质量底线，G3 机器检查"导出/备份"字样） */
+function exportData() {
+  const blob = new Blob([JSON.stringify(items, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "我的数据备份-" + new Date().toISOString().slice(0, 10) + ".json";
+  a.click(); URL.revokeObjectURL(a.href);
+}
+function importData(e) {
+  const f = e.target.files[0]; if (!f) return;
+  const r = new FileReader();
+  r.onload = () => {
+    try {
+      const data = JSON.parse(r.result);
+      if (!Array.isArray(data)) throw 0;
+      items = data; save(); render(); alert("恢复完成！");
+    } catch { alert("这个备份文件读不出来，请确认选对了文件"); }
+  };
+  r.readAsText(f);
+}
+
+document.getElementById("app-title").textContent = document.title;
+render();
+</script>
+</body>
+</html>
