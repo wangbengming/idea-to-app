@@ -4,14 +4,21 @@
 idea-to-app 项目工具箱（项目经理的工程化执行器）
 
 将 skill 的流程固化为状态机 + 机器校验：
-  init      初始化项目（目录结构、模板、状态文件）
-  status    查看项目状态（阶段/编制/评审门/bug）
-  scaffold  按编号落一份文档模板到团队文档
-  dispatch  生成岗位派工单（写入 团队文档/派工/，留审计痕迹）
-  probe     给样品页打"仅方向参考"横幅并归档到 探索/
-  verify    交付物静态检查（自包含/编码/备份按钮等）
-  gate      评审门机器校验（G1 需求 / G2 设计 / G3 提测 / G4 发布）
-  release   发版（要求当前迭代 G3 已通过），写入发布记录
+  init        初始化项目（目录结构、模板、状态文件；--type 定项目类型）
+  status      查看项目状态（类型/阶段/积木块/评审门/bug）
+  scaffold    按编号落一份文档模板到团队文档（优先用项目类型的模板）
+  dispatch    生成岗位派工单（写入 团队文档/派工/，留审计痕迹；xl 规模含 fe/be 岗）
+  probe       给样品页打"仅方向参考"横幅并归档到 探索/
+  verify      交付物静态检查（按类型分派：网页自包含 / 脚本双击件 / 后台安全底线）
+  gate        评审门机器校验（G1 需求 / G2 设计+规划 / G3 提测 / G4 发布）
+  checkpoint  记录一块积木"经用户查验通过"（先机器校验该块 AC 全部打勾）
+  release     发版（要求当前迭代 G3 已通过 + 全部积木块经用户查验），写入发布记录
+
+项目类型（init --type，存于状态文件）：
+  tool   单机工具（默认，单文件/多页网页）
+  data   数据脚本（批量处理/报表/定时任务，py + 启动.bat）
+  admin  管理后台（本地服务 + SQLite，登录/角色/备份）
+  front  商用前台（多页商用级网站，设计令牌/响应式）
 
 命令一律通过 Bash 执行：python "<本技能目录>/scripts/pm.py" <子命令> ...
 用 --dir 指定应用文件夹；缺省时从当前目录向上查找 团队文档/00-项目状态.json。
@@ -33,12 +40,14 @@ SKILL_ROOT = Path(__file__).resolve().parent.parent
 TEMPLATES = SKILL_ROOT / "assets" / "templates"
 
 DOC_FILES = {
+    "00": "00-项目规划书.md",
     "01": "01-需求文档-PRD.md",
     "02": "02-设计方案.md",
     "03": "03-技术方案.md",
     "04": "04-测试报告.md",
     "05": "05-发布记录.md",
     "06": "06-开发自查清单.md",
+    "07": "07-安全与隐私清单.md",
 }
 
 PHASE_AFTER_GATE = {"G1": "design", "G2": "build", "G3": "test"}
@@ -51,7 +60,27 @@ PHASE_LABEL = {
     "iterate": "持续迭代",
 }
 
+# 项目类型：决定模板集、派工增量、门禁增量与 verify 分支（详见 references/project-types.md）
+TYPE_LABEL = {"tool": "单机工具", "data": "数据脚本", "admin": "管理后台", "front": "商用前台"}
+
+# 各类型文档必须出现的章节（模板与门禁保持一致；改模板必须同步改这里，反之亦然）
+G1_HEADERS = {
+    "tool": ["产品定义", "用户画像", "用户故事", "用户旅程", "同类调研", "必须有", "以后再说", "不做清单", "待确认"],
+    "data": ["产品定义", "用户画像", "用户故事", "用户旅程", "同类调研", "输入与输出", "数据样例", "必须有", "以后再说", "不做清单", "待确认"],
+    "admin": ["产品定义", "用户画像", "用户故事", "用户旅程", "同类调研", "实体与角色", "必须有", "以后再说", "不做清单", "待确认"],
+    "front": ["产品定义", "用户画像", "用户故事", "用户旅程", "同类调研", "页面结构", "必须有", "以后再说", "不做清单", "待确认"],
+}
+G2_HEADERS = {
+    "tool": ["页面清单", "交互", "视觉", "趋势侦察", "体验自查"],
+    "data": ["处理流程", "输入输出样例", "异常与提示", "输出样式"],
+    "admin": ["页面清单", "交互", "视觉", "趋势侦察", "体验自查", "权限呈现"],
+    "front": ["页面清单", "交互", "视觉", "趋势侦察", "体验自查", "设计令牌", "响应式"],
+}
+# G4 对测试报告的额外章节要求
+G4_EXTRA_HEADERS = {"admin": ["角色权限测试"], "data": ["异常输入测试"]}
+
 # 各岗位派工单骨架（判断性内容由项目经理补齐后再派给子代理）
+# type_must：按项目类型追加的增量要求（key = init --type，见 references/project-types.md）
 DISPATCH = {
     "pm": {
         "title": "产品部·产品经理",
@@ -64,6 +93,18 @@ DISPATCH = {
             "每条\"必须有\"配可勾选验收标准（能判对错的句子，禁止\"体验良好\"类虚词）",
             "不做清单、待确认清单、用户原话逐字附录",
         ],
+        "type_must": {
+            "data": [
+                "输入与输出：输入文件从哪来/什么格式什么编码/谁提供；输出成什么、给谁看、多久跑一次",
+                "数据样例：贴近真实的输入样例与期望输出样例（脱敏），直接写进 PRD 供设计与测试引用",
+            ],
+            "admin": [
+                "实体与角色：要管理哪些资料（实体/字段/关系）；有哪几类人用，每类能看什么、能改什么（权限矩阵逐格确认）",
+            ],
+            "front": [
+                "页面结构：页面树、每页职责、内容来源（文字图片谁提供、多久更新一次）",
+            ],
+        },
         "bounds": [
             "不做技术选型、不定视觉/交互方案、不写代码（产品定\"做什么\"，怎么做归技术部）",
             "不替用户做决定，拿不准一律进\"待确认\"",
@@ -72,15 +113,32 @@ DISPATCH = {
     },
     "design": {
         "title": "设计部·设计师（交互+视觉合一岗）",
-        "docs": ["01"],
+        "docs": ["00", "01"],
         "output": "团队文档/02-设计方案.md",
         "must": [
+            "按 00-项目规划书的积木块组织交互描述（每块一个小节、标注包含的 AC 编号），便于逐块交付查验",
             "趋势侦察：用 WebSearch 查当前主流设计风格与同类应用界面，记录\"查到什么/采纳什么手法/为何适合本项目\"，并保证素材原创合规",
             "交互：页面清单、每页文字线框、关键交互（点X后发生什么，注明 100ms 内视觉反馈）、空状态/出错状态、危险操作二次确认",
             "视觉：审美基准落点——1 主色+1 强调色+中性灰阶、正文对比度≥4.5:1、字号阶梯与 8pt 网格、圆角阴影统一、动效 150~250ms、按画像适配（中老年→大字号大按钮）",
             "体验自查：即时反馈/错误预防/可达性（触摸目标≥44px）/微文案/核心动作≤3 步，逐项写\"过/不过\"",
             "覆盖 PRD 中每一条 AC 编号（G2 将做追溯校验）",
         ],
+        "type_must": {
+            "data": [
+                "处理流程：从输入到输出分几步、每步做什么（文字流程，代替页面清单；本项目无页面）",
+                "输入输出样例：字面展示\"输入长这样 → 输出长这样\"的对照",
+                "异常与提示：空文件/编码不对/缺列/超大文件时脚本怎么表现、中文提示怎么写",
+                "输出样式：结果文件/报表的排版也算视觉活，给出具体样式（列宽/标题/汇总行等）",
+            ],
+            "admin": [
+                "后台三件套：导航框架 + 列表页（搜索/筛选/分页/批量操作）+ 表单页（校验与错误提示）",
+                "权限呈现：不同角色登录后，导航与按钮的差异逐条列出（AC 编号引用）",
+            ],
+            "front": [
+                "设计令牌：色板/字号阶梯/间距/圆角/阴影落成 :root CSS 变量表，全站样式只引用令牌",
+                "响应式：断点与手机端布局调整逐页写清（导航怎么收、多列怎么变单列）",
+            ],
+        },
         "bounds": [
             "不增删需求：PRD 之外的想法写进\"建议\"节交项目经理，不落进设计",
             "不做技术选型，产出不含实现细节（不规定用什么库、数据怎么存）",
@@ -93,12 +151,29 @@ DISPATCH = {
         "docs": ["01", "02"],
         "output": "团队文档/03-技术方案.md",
         "must": [
-            "架构与交付形态（tech-recipes 方案A/B/C）+ 为什么它是\"从想用到用上步骤最少\"的",
+            "架构与交付形态（tech-recipes 方案A/B/C/E）+ 为什么它是\"从想用到用上步骤最少\"的",
             "数据层选型：localStorage / IndexedDB / JSON 文件 / SQLite，按数据量与结构定，写明备份恢复",
-            "第三方组件：确需图表/图标时下载发行文件放应用文件夹本地引用，记录名称/版本/许可证（MIT、ISC、CC0 等），严禁 CDN 外链",
-            "能力边界核对：对照 tech-recipes 的 file:// 能力边界表逐条核对 PRD，做不了的功能换形态或列入不做",
+            "第三方组件：确需图表/图标等能力时下载发行文件放应用文件夹本地引用，记录名称/版本/许可证（MIT、ISC、CC0 等），严禁 CDN 外链",
+            "能力边界核对：对照 tech-recipes 的能力边界表逐条核对 PRD，做不了的功能换形态或列入不做",
             "文件结构、性能预算（>1000 条分页、>5MB 换 IndexedDB）、风险与规避",
         ],
+        "type_must": {
+            "data": [
+                "库策略：标准库优先；确需第三方库（如 pandas/openpyxl）列名称/用途/许可证，并在使用说明写明\"第一次用前需要装一下\"的步骤",
+                "编码与兼容：输入文件编码探测链（utf-8/gbk…）、输出编码（给 Excel 用的 csv 用 utf-8-sig）",
+                "健壮性：原始输入文件只读不改；临时文件+原子替换；异常不吞——中文提示\"哪里错了、跳过了什么、结果在哪\"",
+            ],
+            "admin": [
+                "形态 E：本地服务 + SQLite，以 assets/admin-template.py 为骨架（登录/会话/角色/备份已内置）；换型需写明理由与代价",
+                "认证与权限：密码 pbkdf2 加密存储、会话失效策略、每个路由的服务端权限校验点清单",
+                "备份恢复：界面\"备份数据\"按钮复制数据库到 backups/，写明恢复步骤",
+            ],
+            "front": [
+                "路由与资源：多页 HTML 或单页路由的取舍；共享样式/脚本的组织方式",
+                "商用清单：每页 title 与描述、favicon、404 页、加载/空状态、跨页返回、图片压缩与懒加载",
+                "性能预算：单页体积与首屏资源上限、图片总量控制",
+            ],
+        },
         "bounds": [
             "不增删需求；发现需求或设计不可实现→写退回单，不自作主张变通",
             "不直接编写业务代码",
@@ -107,27 +182,128 @@ DISPATCH = {
     },
     "dev": {
         "title": "技术部·开发工程师",
-        "docs": ["02", "03"],
-        "output": "应用文件夹内可运行的交付物（网页类以 assets/app-template.html 样板起步）+ 团队文档/06-开发自查清单.md",
+        "docs": ["00", "02", "03"],
+        "output": "可运行的交付物（放在应用文件夹根目录；以技能 assets/ 内对应类型样板起步：网页 app-template.html、后台 admin-template.py）+ 团队文档/06-开发自查清单.md",
         "must": [
+            "按 00-项目规划书的积木块顺序交付：每拼完一块在汇报中声明\"M 几完成、可查验\"，不打乱顺序（前置块未过用户查验不开始依赖它的块）",
             "界面与文案全部中文，不擅自扩功能",
             "自查清单每条 AC 标注 - [x] AC-xx 已实现：<说明> 或 - [ ] AC-xx 未实现：<原因>",
         ],
+        "type_must": {
+            "data": [
+                "脚本输出与提示信息全部中文；绝不修改用户的原始输入文件，结果写新文件",
+                "交付物 = .py + 启动.bat（bat 含 chcp 65001 / cd /d \"%~dp0\" / pause），verify 会逐项检查",
+            ],
+            "admin": [
+                "以 assets/admin-template.py 为骨架扩展（登录/会话/权限/备份不删减）；密码必须 pbkdf2 存储，禁止明文",
+                "每个功能在服务端校验角色权限，不能只靠界面藏按钮",
+            ],
+            "front": [
+                "全站样式只从 02 的设计令牌取值；每页有 title/viewport/描述与 favicon",
+                "404 页、加载与空状态逐页落实；图片本地且压缩",
+            ],
+        },
         "bounds": [
             "三不：不改需求范围、不换技术选型、不擅自修改设计",
             "上游文档问题写退回单，禁止静默修改上游产物",
             "不做浏览器自动化测试（真机走查归项目经理）",
         ],
     },
+    "fe": {
+        "title": "技术部·前端工程师",
+        "docs": ["00", "02", "03"],
+        "output": "可运行的前端交付物（应用文件夹根目录）+ 团队文档/06-开发自查清单.md（前端相关 AC；前后端分写后由 PMO 合并核对）",
+        "must": [
+            "界面与文案全部中文；样式只从 02-设计令牌取值，不擅自扩功能",
+            "自查清单每条 AC 标注 - [x] AC-xx 已实现：<说明> 或 - [ ] AC-xx 未实现：<原因>（前端相关 AC）",
+        ],
+        "type_must": {
+            "admin": [
+                "后台界面以服务端模板呈现，样式脚本内联或本地文件，禁 CDN 外链",
+                "权限在界面的呈现严格按 02-权限呈现：无权限的入口不渲染，但不依赖它做安全（安全归后端）",
+            ],
+            "front": [
+                "每页 title/viewport/描述/favicon 齐全；响应式按 02 断点实现；图片本地且压缩",
+            ],
+        },
+        "bounds": [
+            "三不：不改需求范围、不换技术选型、不擅自修改设计",
+            "上游文档问题写退回单，禁止静默修改上游产物",
+            "不做浏览器自动化测试（真机走查归项目经理）",
+        ],
+    },
+    "be": {
+        "title": "技术部·后端工程师",
+        "docs": ["00", "02", "03"],
+        "output": "可运行的服务端/脚本交付物（应用文件夹根目录）+ 团队文档/06-开发自查清单.md（后端相关 AC；前后端分写后由 PMO 合并核对）",
+        "must": [
+            "提示与报错信息全部中文，不擅自扩功能",
+            "自查清单每条 AC 标注 - [x] AC-xx 已实现：<说明> 或 - [ ] AC-xx 未实现：<原因>（后端相关 AC）",
+        ],
+        "type_must": {
+            "admin": [
+                "以 assets/admin-template.py 为骨架扩展：登录/会话/权限校验/备份不删减；密码必须 pbkdf2 存储",
+                "每个路由的服务端权限校验点与 03-技术方案 的清单一一对应",
+            ],
+            "data": [
+                "绝不修改用户的原始输入文件，结果写新文件；异常不吞（中文提示 + 非零退出码）",
+            ],
+        },
+        "bounds": [
+            "三不：不改需求范围、不换技术选型、不擅自修改设计",
+            "上游文档问题写退回单，禁止静默修改上游产物",
+            "不做浏览器自动化测试（真机走查归项目经理）",
+        ],
+    },
+    "sec": {
+        "title": "安全部·安全与隐私工程师",
+        "docs": ["00", "01", "03"],
+        "output": "团队文档/07-安全与隐私清单.md",
+        "must": [
+            "数据分级：应用收集/存储了哪些数据，逐类标注敏感级别（公开/内部/敏感/高敏）、存在哪、谁能看到、能不能不收",
+            "攻击面检查：登录与会话、文件与路径处理、表单与注入、依赖组件的版本与已知漏洞（逐项写\"测过什么、怎么防\"）",
+            "隐私底线：最小化收集、不留后门/不硬编码密钥、用户数据不偷偷上传、有导出与删除路径",
+            "风险与缓解：发现的问题按严重度列出并给修复建议，格式 - [严重|一般] 描述 | 建议 | open|fixed；严重问题必须修复后才算完成",
+        ],
+        "type_must": {
+            "data": [
+                "输入文件攻击面：路径穿越、超大文件/解压炸弹、伪装成数据的可执行内容；再次确认绝不覆盖用户原始文件",
+            ],
+            "admin": [
+                "重点核对：密码哈希存储、每个路由的服务端角色校验、会话失效、备份文件与数据库文件的保管、内置账号首次改密",
+            ],
+            "front": [
+                "重点核对：表单提交去向、外部内容零依赖、素材版权与本地文件完整性（防供应链投毒）",
+            ],
+        },
+        "bounds": [
+            "不改代码：发现安全问题写入清单，通过项目经理转交开发修复",
+            "只做防御性检查，不编写利用代码、不做攻击性测试",
+            "不降级已确认的安全底线（如密码加密）；发现\"严重\"级问题有一票缓发权，由项目经理裁决修复方案",
+        ],
+    },
     "qa": {
         "title": "质量部·测试工程师",
-        "docs": ["01", "02", "03"],
+        "docs": ["00", "01", "02", "03"],
         "output": "团队文档/04-测试报告.md",
         "must": [
-            "测试用例表（编号/步骤/预期/实际/通过否），覆盖每条 AC 编号",
+            "测试用例表（编号/步骤/预期/实际/通过否），覆盖每条 AC 编号，按 00-规划书的积木块分组",
             "bug 用固定格式：- BUG-编号 | 严重|一般|建议 | 标题 | open|fixed",
-            "报告末尾留\"待项目经理浏览器走查清单\"（QA 不得做浏览器操作）",
+            "报告末尾留\"待项目经理走查清单\"（QA 不得做浏览器操作）",
         ],
+        "type_must": {
+            "data": [
+                "必须包含「样例数据测试」与「异常输入测试」：正常输入跑出预期输出；空文件/坏编码/缺列/超大文件被安全处理且中文提示",
+                "脚本由本岗真实运行（不碰浏览器），运行结果截图或原文摘录进报告",
+            ],
+            "admin": [
+                "必须包含「角色权限测试」：每个角色 × 关键功能逐格验证可见/可改；未授权账号直接访问受限地址必须被服务端拒绝",
+                "登录/退出/改密/备份/重启后数据保留纳入用例",
+            ],
+            "front": [
+                "逐页检查 title/空状态/404/跨页返回；响应式问题列入\"待项目经理走查清单\"（真机走查归 PMO）",
+            ],
+        },
         "bounds": [
             "不做浏览器操作（真机走查归项目经理）",
             "不改代码，只报告不修复",
@@ -152,7 +328,9 @@ BRIEF_HEADER = """【角色】{title}，你是虚拟开发团队中的这个岗�
         {app_dir}/团队文档/派工/退回-<本岗位>-<主题>.md（写明：退给谁/问题/阻塞/建议改法），
         并在返回汇报中说明；禁止静默修改上游产物，禁止自行变更方案。
 【约束】界面与文案全部中文；不擅自新增需求（新想法一律写入"以后再说"）；
-        拿不准的点写进文末"待确认"，禁止编造；只依据输入内容工作
+        拿不准的点写进文末"待确认"，禁止编造；只依据输入内容工作；
+        只实现合法用途的功能——发现疑似违法、侵权或未经授权处理他人数据的内容，
+        立即停止该部分工作并在返回汇报中说明，禁止照做
 【返回】给项目经理不超过 200 字的完成汇报 + 待确认清单（如有）"""
 
 
@@ -207,6 +385,22 @@ def ac_ids(text):
     return sorted(set(re.findall(r"AC-\d+", text)), key=lambda x: int(x.split("-")[1]))
 
 
+def plan_blocks(text):
+    """从规划书正文解析积木块，返回有序 [(块号, 章节文本)]。块格式固定：### M1 <块名>。"""
+    matches = list(re.finditer(r"^###\s*(M\d+)\b[^\n]*$", text, flags=re.M))
+    out = []
+    for i, m in enumerate(matches):
+        end = matches[i + 1].start() if i + 1 < len(matches) else len(text)
+        out.append((m.group(1), text[m.end():end]))
+    return out
+
+
+def block_acs(section):
+    """积木块章节里「包含 AC：AC-01, AC-02」一行解析出的 AC 列表。"""
+    m = re.search(r"包含\s*AC[:：][^\n]*", section)
+    return ac_ids(m.group(0)) if m else []
+
+
 def section_text(text, header):
     """取 markdown 中某二级/三级标题下、到下一个标题为止的正文。"""
     m = re.search(rf"^#+\s*{re.escape(header)}.*$", text, flags=re.M)
@@ -224,21 +418,33 @@ def nonempty(text):
 
 # ---------- 子命令 ----------
 
+def template_for(vtype, fname):
+    """项目类型专属模板优先（assets/templates/<type>/<文件>），否则用通用模板。"""
+    if vtype and vtype != "tool":
+        p = TEMPLATES / vtype / fname
+        if p.exists():
+            return p
+    return TEMPLATES / fname
+
+
 def cmd_init(args):
     parent = Path(args.dir).resolve() if args.dir else Path.cwd()
     app_dir = parent / args.name
     if app_dir.exists():
         fail(f"目录已存在：{app_dir}")
     scale = args.scale
+    vtype = args.type
     (app_dir / "团队文档" / "派工").mkdir(parents=True)
     for doc_id, fname in DOC_FILES.items():
-        shutil.copy(TEMPLATES / fname, app_dir / "团队文档" / fname)
+        shutil.copy(template_for(vtype, fname), app_dir / "团队文档" / fname)
     shutil.copy(TEMPLATES / "我的应用.md", app_dir / "我的应用.md")
     shutil.copy(TEMPLATES / "使用说明.txt", app_dir / "使用说明.txt")
     state = {
         "name": args.name,
         "scale": scale,
-        "hasUserData": not args.no_data,
+        "type": vtype,
+        # front 默认视为纯展示站（不存用户数据）；确有数据录入时在 PRD 写明并自行实现导出
+        "hasUserData": (not args.no_data) and args.type != "front",
         "phase": "requirements" if scale != "small" else "intake",
         "iteration": 1,
         "gates": {},
@@ -246,19 +452,35 @@ def cmd_init(args):
     }
     save_state(app_dir, state, app_dir / "团队文档" / "00-项目状态.json")
     print(f"✅ 项目已初始化：{app_dir}")
-    print(f"   编制：{scale}；阶段：{PHASE_LABEL[state['phase']]}")
+    print(f"   类型：{TYPE_LABEL.get(vtype, vtype)}；编制：{scale}；阶段：{PHASE_LABEL[state['phase']]}")
     if scale == "small":
         print("   小型编制：不留团队文档流程，直接开发。")
         print("   下一步：开发完成后运行 verify + gate G3 检查交付物，再 release。")
     else:
+        if scale == "xl":
+            print("   XL 编制：开发拆前端/后端两岗（dispatch fe / dispatch be）。")
+        if vtype == "admin":
+            print("   开发岗将以 assets/admin-template.py 为骨架（登录/角色/备份已内置）。")
+        elif vtype == "data":
+            print("   交付物 = .py 脚本 + 启动.bat（verify 会检查双击件与编码处理）。")
         print("   下一步：python pm.py dispatch pm 生成产品经理派工单，补齐输入后派工。")
+        print("   （G1 过门后，产品经理先出《00-项目规划书》拆积木块，用户确认后按块推进）")
 
 
 def cmd_status(args):
     app_dir = find_project(args.dir)
     state, _ = load_state(app_dir)
-    print(f"项目：{state['name']}（{state['scale']}）")
+    vtype = state.get("type", "tool")
+    print(f"项目：{state['name']}（{TYPE_LABEL.get(vtype, vtype)} · {state['scale']}）")
     print(f"阶段：{PHASE_LABEL.get(state['phase'], state['phase'])}  迭代：第 {state['iteration']} 轮")
+    t00 = read_doc(app_dir, "00")
+    if t00:
+        blocks = plan_blocks(strip_comments(t00))
+        done = state.get("blocks") or {}
+        if blocks:
+            marks = "  ".join(f"{b}{'✅' if b in done else '⬜'}" for b, _ in blocks)
+            n_done = sum(1 for b, _ in blocks if b in done)
+            print(f"积木块：{marks}（已查验 {n_done}/{len(blocks)}）")
     cur = {g: v for g, v in state["gates"].items() if v.get("iteration") == state["iteration"]}
     if cur:
         print("评审门（本轮）：" + "  ".join(f"{g}✅" for g in sorted(cur)))
@@ -280,7 +502,7 @@ def cmd_scaffold(args):
     dest = doc_path(app_dir, args.doc_id)
     if dest.exists() and not args.force:
         fail(f"已存在 {dest.name}（--force 覆盖）")
-    shutil.copy(TEMPLATES / DOC_FILES[args.doc_id], dest)
+    shutil.copy(template_for(state.get("type", "tool"), DOC_FILES[args.doc_id]), dest)
     save_state(app_dir, state, f)
     print(f"✅ 已落模板：{dest}")
 
@@ -291,19 +513,21 @@ def cmd_dispatch(args):
     role = args.role
     if role not in DISPATCH:
         fail(f"未知岗位 {role}，可选：{' '.join(DISPATCH)}")
+    vtype = state.get("type", "tool")
     info = DISPATCH[role]
+    must = list(info["must"]) + list(info.get("type_must", {}).get(vtype, []))
     docs_list = "\n".join(
         f"     - {app_dir / '团队文档' / DOC_FILES[d]}" for d in info["docs"]
     ) or "     - （无上游文档，以用户原话为准）"
     brief = BRIEF_HEADER.format(
         title=info["title"],
         name=state["name"],
-        scale=state["scale"],
+        scale=f"{state['scale']}（{TYPE_LABEL.get(vtype, vtype)}）",
         app_dir=app_dir,
         task="<一句话说明本次要做什么>",
         docs_list=docs_list,
         output=info["output"],
-        must_list="\n".join(f"  {i+1}. {m}" for i, m in enumerate(info["must"])),
+        must_list="\n".join(f"  {i+1}. {m}" for i, m in enumerate(must)),
         bounds_list="\n".join(f"  {i+1}. {b}" for i, b in enumerate(info["bounds"])),
     )
     out_dir = app_dir / "团队文档" / "派工"
@@ -317,6 +541,34 @@ def cmd_dispatch(args):
     print(brief)
     print(f"\n✅ 派工单已留痕：{dest}")
     print("   请把 <尖括号> 里的占位补齐后，连同 brief 全文派给子代理；子代理的完成汇报请存为同目录 <岗位>-report.md。")
+
+
+def cmd_checkpoint(args):
+    """记录一块积木"经用户查验通过"。先机器校验该块 AC 已在 06 自查清单全部打勾。"""
+    app_dir = find_project(args.dir)
+    state, f = load_state(app_dir)
+    plan = read_doc(app_dir, "00")
+    if plan is None:
+        fail("00-项目规划书.md 不存在（中型以上项目先由产品经理产出规划书再按块推进）")
+    body = strip_comments(plan)
+    blocks = dict(plan_blocks(body))
+    if args.block not in blocks:
+        fail(f"规划书里没有积木块「{args.block}」。已定义：{' '.join(blocks) or '（无，格式应为 ### M1 <块名>）'}")
+    acs = block_acs(blocks[args.block])
+    t06 = read_doc(app_dir, "06")
+    body06 = strip_comments(t06) if t06 is not None else ""
+    unchecked = [a for a in acs if not re.search(rf"- \[[xX]\]\s*{a}\b", body06)]
+    if unchecked:
+        fail(f"块 {args.block} 的 AC 尚未在 06-开发自查清单全部打勾：{unchecked}")
+    state.setdefault("blocks", {})[args.block] = {"date": date.today().isoformat(), "note": args.note}
+    save_state(app_dir, state, f)
+    print(f"✅ 积木块 {args.block} 已记录为【经用户查验通过】（{len(acs)} 条 AC：{' '.join(acs) or '无'}）")
+    if args.note:
+        print(f"   备注：{args.note}")
+    else:
+        print("   提醒：checkpoint 应在用户看过该块演示并点头之后记录；用户未确认就记录属于违规。")
+    remaining = [b for b in blocks if b not in state["blocks"]]
+    print(f"   进度：{len(blocks) - len(remaining)}/{len(blocks)}" + (f"，下一块：{remaining[0]}" if remaining else "，全部查验完毕可走 G3 提测"))
 
 
 def cmd_probe(args):
@@ -356,35 +608,119 @@ def cmd_probe(args):
     print("   提醒：发给用户时必须说明\"这是样品，用来看方向，不是成品\"。")
 
 
-def run_verify(app_dir, state):
-    """静态检查应用文件夹内的 html 交付物，返回 (hard_errors, warnings) 列表。"""
+def check_html_text(name, t, errors, warns, external="all", check_viewport=True):
+    """单个 HTML 文本的通用检查。external: all=src/href 都查（单文件自包含），src=只查资源加载。"""
+    pat = r"""(?:src|href)\s*=\s*["']https?://[^"']+|@import\s+url\(\s*["']?https?://[^"')]+|url\(\s*["']?https?://[^"')]+"""
+    if external == "src":
+        pat = r"""(?:src)\s*=\s*["']https?://[^"']+|@import\s+url\(\s*["']?https?://[^"')]+|url\(\s*["']?https?://[^"')]+"""
+    externals = re.findall(pat, t, flags=re.I)
+    if externals:
+        errors.append(f"{name}：引用了 {len(externals)} 处外部网络资源（{externals[0][:60]}...）——离线可用不能依赖网络，必须改为内联/本地")
+    if not re.search(r"<meta[^>]+charset", t, flags=re.I):
+        errors.append(f"{name}：缺少 <meta charset>（中文会乱码）")
+    if not re.search(r"<title>\S+", t, flags=re.I):
+        errors.append(f"{name}：缺少 <title>")
+    if check_viewport and not re.search(r'name="viewport"', t, flags=re.I):
+        warns.append(f"{name}：缺少 viewport meta（手机上打开会缩小变形）")
+    if re.search(r"lang=\"(?!zh)", t, flags=re.I):
+        warns.append(f"{name}：<html lang> 不是 zh")
+
+
+def check_bat(p, app_dir, errors):
+    """双击启动 .bat 的通用检查（data/admin 类型交付物）。"""
+    t = p.read_text(encoding="utf-8", errors="replace")
+    if not re.search(r"chcp\s+65001", t):
+        errors.append(f"{p.name}：缺少 chcp 65001（中文输出会乱码）")
+    if not re.search(r"cd\s+/d\s+\"?%~dp0\"?", t):
+        errors.append(f"{p.name}：缺少 cd /d \"%~dp0\"（从别处双击会找不到同目录文件）")
+    if not re.search(r"^pause", t, flags=re.M):
+        errors.append(f"{p.name}：结尾缺 pause（窗口会一闪而过，用户看不到结果）")
+    refs = re.findall(r"[\w\-一-龥]+\.py", t)
+    if refs and not any((app_dir / r).exists() for r in refs):
+        errors.append(f"{p.name}：引用的脚本 {refs[0]} 不存在")
+
+
+def verify_html(app_dir, state, vtype):
+    """tool / front：网页交付物检查（front 商用级更严）。"""
     errors, warns = [], []
-    htmls = [p for p in app_dir.glob("*.html")]
-    if state.get("scale") != "small" or not htmls:
-        pass
+    htmls = list(app_dir.glob("*.html"))
     if not htmls:
         errors.append("应用文件夹根目录没有找到 .html 交付物")
         return errors, warns
-    for p in htmls:
-        t = p.read_text(encoding="utf-8", errors="replace")
-        externals = re.findall(
-            r"""(?:src|href)\s*=\s*["']https?://[^"']+|@import\s+url\(\s*["']?https?://[^"')]+|url\(\s*["']?https?://[^"')]+""",
-            t, flags=re.I)
-        if externals:
-            errors.append(f"{p.name}：引用了 {len(externals)} 处外部网络资源（{externals[0][:60]}...）——双击可用不能依赖网络，必须改为内联/本地")
-        if not re.search(r"<meta[^>]+charset", t, flags=re.I):
-            errors.append(f"{p.name}：缺少 <meta charset>（中文会乱码）")
-        if not re.search(r"<title>\S+", t, flags=re.I):
-            errors.append(f"{p.name}：缺少 <title>")
-        if not re.search(r'name="viewport"', t, flags=re.I):
-            warns.append(f"{p.name}：缺少 viewport meta（手机上打开会缩小变形）")
-        if state.get("hasUserData", True) and not re.search(r"导出|备份", t):
-            errors.append(f"{p.name}：有用户数据但找不到\"导出/备份\"功能（质量底线）")
-        if not re.search(r"localStorage|导出|备份", t):
-            warns.append(f"{p.name}：未发现数据保存机制（localStorage 或导出）")
-        if re.search(r"lang=\"(?!zh)", t, flags=re.I):
-            warns.append(f"{p.name}：<html lang> 不是 zh")
+    texts = {p.name: p.read_text(encoding="utf-8", errors="replace") for p in htmls}
+    for name, t in texts.items():
+        check_html_text(name, t, errors, warns, check_viewport=(vtype != "front"))
+        if vtype == "front" and not re.search(r'name="viewport"', t, flags=re.I):
+            errors.append(f"{name}：缺少 viewport meta（商用前台必须手机可用）")
+    if vtype == "front" and len(htmls) > 1 and not (app_dir / "index.html").exists():
+        errors.append("多页前台缺少 index.html 入口（用户要双击的就是它）")
+    if state.get("hasUserData", True):
+        if not any(re.search(r"导出|备份", t) for t in texts.values()):
+            errors.append("有用户数据但找不到\"导出/备份\"功能（质量底线）")
+    if vtype == "tool" and not any(re.search(r"localStorage|导出|备份", t) for t in texts.values()):
+        warns.append("未发现数据保存机制（localStorage 或导出）")
     return errors, warns
+
+
+def verify_data(app_dir, state):
+    """data：脚本交付物检查——双击件齐全、编码有处理、可移植。"""
+    errors, warns = [], []
+    pys = list(app_dir.glob("*.py"))
+    bats = list(app_dir.glob("*.bat"))
+    if not pys:
+        errors.append("没有找到 .py 脚本文件")
+    if not bats:
+        errors.append("没有找到 启动.bat（用户要双击就能用，见 tech-recipes 方案 C）")
+    for p in bats:
+        check_bat(p, app_dir, errors)
+    for p in pys:
+        t = p.read_text(encoding="utf-8", errors="replace")
+        if not re.search(r"utf-8|utf8|gbk|encoding", t, flags=re.I):
+            warns.append(f"{p.name}：未发现编码处理（中文文件常见 utf-8/gbk 差异，建议显式处理）")
+        if re.search(r"[A-Za-z]:\\\\", t):
+            warns.append(f"{p.name}：疑似写死盘符绝对路径（换电脑会失效），请改相对路径")
+    # 脚本生成的 html 报告也算交付物，做基础检查
+    for p in app_dir.glob("*.html"):
+        check_html_text(p.name, p.read_text(encoding="utf-8", errors="replace"), errors, warns)
+    return errors, warns
+
+
+def verify_admin(app_dir, state):
+    """admin：本地服务交付物检查——安全底线（加密存储/登录/备份）+ 双击件。"""
+    errors, warns = [], []
+    pys = list(app_dir.glob("*.py"))
+    bats = list(app_dir.glob("*.bat"))
+    if not pys:
+        errors.append("没有找到服务端 .py 文件")
+    if not bats:
+        errors.append("没有找到 启动.bat（用户要双击就能用，见 tech-recipes 方案 E）")
+    code = "\n".join(p.read_text(encoding="utf-8", errors="replace") for p in pys)
+    if not re.search(r"sqlite3|json\.(dump|load)", code):
+        errors.append("未发现数据存储层（SQLite 或 JSON 文件；方案 E 默认 SQLite）")
+    if not re.search(r"pbkdf2_hmac\(|bcrypt\.hashpw|scrypt\.|passlib|werkzeug|argon2", code):
+        errors.append("密码没有用 pbkdf2/bcrypt 等算法加密存储（须有真实调用；禁止明文。骨架 assets/admin-template.py 已内置）")
+    if not re.search(r"登录|login", code, flags=re.I):
+        errors.append("未发现登录功能（管理后台必须有登录）")
+    if state.get("hasUserData", True) and not re.search(r"备份", code):
+        errors.append("有数据但找不到「备份」功能（管理后台默认用\"备份数据\"按钮复制数据库文件）")
+    if not (re.search(r"webbrowser", code) or any(
+            re.search(r"start\b", p.read_text(encoding='utf-8', errors='replace'), flags=re.I) for p in bats)):
+        warns.append("双击启动后不会自动打开浏览器（建议 app.py 用 webbrowser.open 或 bat 用 start）")
+    for p in bats:
+        check_bat(p, app_dir, errors)
+    for p in app_dir.glob("*.html"):
+        check_html_text(p.name, p.read_text(encoding="utf-8", errors="replace"), errors, warns, external="src")
+    return errors, warns
+
+
+def run_verify(app_dir, state):
+    """按项目类型分派交付物静态检查，返回 (hard_errors, warnings) 列表。"""
+    vtype = state.get("type", "tool")
+    if vtype == "data":
+        return verify_data(app_dir, state)
+    if vtype == "admin":
+        return verify_admin(app_dir, state)
+    return verify_html(app_dir, state, vtype)
 
 
 def cmd_verify(args):
@@ -405,6 +741,7 @@ def cmd_gate(args):
     app_dir = find_project(args.dir)
     state, f = load_state(app_dir)
     g = args.gate
+    vtype = state.get("type", "tool")
     checks = []  # (ok_hard: None|True|False, msg)
 
     if g == "G1":
@@ -412,8 +749,8 @@ def cmd_gate(args):
         checks.append((t is not None, "01-需求文档-PRD.md 存在"))
         if t is not None:
             body = strip_comments(t)
-            for h in ["产品定义", "用户画像", "用户故事", "用户旅程", "同类调研", "必须有", "以后再说", "不做清单", "待确认"]:
-                checks.append((bool(re.search(rf"^#+\s*{h}", body, flags=re.M)), f"章节「{h}」存在"))
+            for h in G1_HEADERS.get(vtype, G1_HEADERS["tool"]):
+                checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", body, flags=re.M)), f"章节「{h}」存在"))
             acs = ac_ids(body)
             checks.append((len(acs) >= 1, f"有可勾选的验收标准（当前 {len(acs)} 条 AC）"))
             checks.append((nonempty(section_text(body, "不做清单")), "不做清单非空"))
@@ -424,13 +761,32 @@ def cmd_gate(args):
         checks.append((t02 is not None, "02-设计方案.md 存在"))
         if t02 is not None:
             body = strip_comments(t02)
-            for h in ["页面清单", "交互", "视觉", "趋势侦察", "体验自查"]:
-                checks.append((bool(re.search(rf"^#+\s*{h}", body, flags=re.M)), f"章节「{h}」存在"))
+            for h in G2_HEADERS.get(vtype, G2_HEADERS["tool"]):
+                checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", body, flags=re.M)), f"章节「{h}」存在"))
             if t01:
                 need = ac_ids(strip_comments(t01))
                 missing = [a for a in need if a not in body]
                 checks.append((not missing, f"AC 追溯：设计覆盖 {len(need) - len(missing)}/{len(need)}"
                                              + (f"，缺 {missing}" if missing else "")))
+        # 积木块规划：新版项目（00 已落模板）强制覆盖性校验；老项目（无 00）跳过并提示
+        t00 = read_doc(app_dir, "00")
+        if t00 is None:
+            checks.append((True, "00-项目规划书.md 不存在（老项目兼容；建议 scaffold 00 补拆积木块）"))
+        else:
+            pbody = strip_comments(t00)
+            blocks = plan_blocks(pbody)
+            checks.append((bool(re.search(r"^#+\s*积木块分解", pbody, flags=re.M)) and blocks,
+                           f"章节「积木块分解」存在且至少 1 块（当前 {len(blocks)} 块）"))
+            if t01:
+                need_all = set(ac_ids(strip_comments(t01)))
+                must_txt = section_text(strip_comments(t01), "必须有")
+                must = set(ac_ids(must_txt))
+                plan_acs = set(ac_ids(pbody))
+                extra = sorted(plan_acs - need_all)
+                uncovered = sorted(must - plan_acs)
+                checks.append((not extra, "规划未私加 PRD 之外的 AC" + (f"（多了 {extra}）" if extra else "")))
+                checks.append((not must or not uncovered,
+                               f"规划覆盖全部第一版 AC" + (f"，缺 {uncovered}" if uncovered else "")))
     elif g == "G3":
         state2, _ = load_state(app_dir)
         errors, _ = run_verify(app_dir, state2)
@@ -452,14 +808,34 @@ def cmd_gate(args):
             bugs = re.findall(r"- BUG-\d+\s*\|\s*(严重|一般|建议)\s*\|[^|]*\|\s*(open|fixed)", body)
             sev_open = [b for b in bugs if b[0] == "严重" and b[1] == "open"]
             checks.append((not sev_open, f"无 open 状态的严重 bug（当前 bug {len(bugs)} 条，严重 open {len(sev_open)} 条）"))
+            for h in G4_EXTRA_HEADERS.get(vtype, []):
+                checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", body, flags=re.M)), f"测试报告章节「{h}」存在"))
             if t01:
                 need = ac_ids(strip_comments(t01))
                 missing = [a for a in need if a not in body]
                 checks.append((not missing, f"AC 追溯：测试覆盖 {len(need) - len(missing)}/{len(need)}"
                                              + (f"，缺 {missing}" if missing else "")))
         checks.append(((app_dir / "使用说明.txt").exists(), "使用说明.txt 存在"))
+        # 积木块：规划书里定义的每一块都必须经用户查验（含用户明示免验并留痕的）
+        t00 = read_doc(app_dir, "00")
+        if t00 is not None:
+            blocks = [b for b, _ in plan_blocks(strip_comments(t00))]
+            done = set((state.get("blocks") or {}).keys())
+            missing = [b for b in blocks if b not in done]
+            checks.append((not missing, f"积木块全部经用户查验（{len(blocks) - len(missing)}/{len(blocks)}）"
+                                        + (f"，未查验 {missing}" if missing else "")))
+        # 安全底线：有用户数据或后台/脚本类项目必须过安全与隐私清单
+        if state.get("hasUserData") or vtype in ("data", "admin"):
+            t07 = read_doc(app_dir, "07")
+            checks.append((t07 is not None, "07-安全与隐私清单.md 存在（安全工程师产出）"))
+            if t07 is not None:
+                sbody = strip_comments(t07)
+                for h in ("数据分级", "隐私底线", "风险与缓解"):
+                    checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", sbody, flags=re.M)),
+                                   f"安全清单章节「{h}」存在"))
+                checks.append((nonempty(section_text(sbody, "数据分级")), "数据分级非空"))
         g3 = state["gates"].get("G3", {})
-        checks.append((g3.get("iteration") == state["iteration"], "本轮迭代已过 G3 提测门（项目经理浏览器走查完成）"))
+        checks.append((g3.get("iteration") == state["iteration"], "本轮迭代已过 G3 提测门（项目经理浏览器/真机走查完成）"))
     else:
         fail("未知评审门，可选 G1 G2 G3 G4")
 
@@ -506,7 +882,10 @@ def main():
 
     p = sub.add_parser("init", help="初始化项目", parents=[common])
     p.add_argument("name")
-    p.add_argument("--scale", choices=["small", "medium", "large"], default="medium")
+    p.add_argument("--scale", choices=["small", "medium", "large", "xl"], default="medium",
+                   help="编制：small 单人 / medium 标准班组 / large 加独立技术负责人 / xl 前后端分岗")
+    p.add_argument("--type", choices=["tool", "data", "admin", "front"], default="tool",
+                   help="项目类型：tool 单机工具 / data 数据脚本 / admin 管理后台 / front 商用前台")
     p.add_argument("--no-data", action="store_true", help="应用不保存用户数据（纯计算类），verify 不强制备份按钮")
     p.set_defaults(fn=cmd_init)
 
@@ -534,6 +913,11 @@ def main():
     p = sub.add_parser("gate", help="评审门机器校验", parents=[common])
     p.add_argument("gate", choices=["G1", "G2", "G3", "G4"])
     p.set_defaults(fn=cmd_gate)
+
+    p = sub.add_parser("checkpoint", help="记录一块积木经用户查验通过", parents=[common])
+    p.add_argument("block", help="积木块编号，如 M1（须已写在 00-项目规划书中）")
+    p.add_argument("--note", default="", help="备注，如：用户已确认 / 用户明示免验（免验须在 05 留用户原话）")
+    p.set_defaults(fn=cmd_checkpoint)
 
     p = sub.add_parser("release", help="发版", parents=[common])
     p.add_argument("--note", default="", help="本次大白话改动说明")
