@@ -1,49 +1,109 @@
 <!DOCTYPE html>
 <!-- idea-to-app 交付物样板：单文件、双击可用、无需网络。
-     开发工程师以此为起点定制：改标题/文案/配色/功能，保留"数据保存 + 备份/恢复"骨架。
-     约定：有用户数据的应用必须保留"导出备份"和"恢复"功能（质量底线，G3 会机器检查）。 -->
+     开发工程师以此为起点定制：① 把 :root 里的令牌值换成 02-设计方案「设计令牌」节的取值（一律改令牌，不在页面写裸值）；
+     ② 改标题/文案/功能，保留"数据保存 + 备份/恢复"骨架。
+     约定：有用户数据的应用必须保留"导出备份"和"恢复"功能（质量底线，G3 会机器检查）。
+     本样板的默认取值 = design-craft.md 演示色板（暖棕），只是占位——必须换成 02 定的值。 -->
 <html lang="zh">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>我的小助手</title>
 <style>
+  /* ===== 设计令牌（唯一改色/改形/改节奏的地方，照 02「设计令牌」节换值） ===== */
+  :root {
+    /* 色彩 16 语义位（灰阶随主色染色；每对前景/背景对比度 ≥ 4.5:1） */
+    --c-primary: #92400E;        --c-on-primary: #FFFFFF;
+    --c-secondary: #B45309;      --c-on-secondary: #FFFFFF;
+    --c-accent: #C2410C;         --c-on-accent: #FFFFFF;
+    --c-bg: #FFF7ED;             --c-fg: #3D2B1F;
+    --c-card: #FFFFFF;           --c-card-fg: #3D2B1F;
+    --c-muted: #F3E7D8;          --c-muted-fg: #8A6D55;
+    --c-border: #EEDDC8;
+    --c-danger: #DC2626;         --c-on-danger: #FFFFFF;
+    --c-ring: #92400E;
+    /* 字体：正文栈 + 字重层级（700/500/400）+ 字阶 */
+    --font-body: -apple-system, "PingFang SC", "HarmonyOS Sans SC", "MiSans", "Microsoft YaHei", "Noto Sans SC", sans-serif;
+    --fs-sm: 14px; --fs-base: 16px; --fs-md: 20px; --fs-lg: 25px;
+    /* 间距（标准档）与形状 */
+    --sp-1: 8px; --sp-2: 16px; --sp-3: 24px; --sp-4: 32px;
+    --radius: 12px;
+    /* 深度阶梯（全站只用这几档） */
+    --shadow-el-1: 0 1px 3px rgba(61, 43, 31, .10);
+    --shadow-el-2: 0 4px 6px rgba(61, 43, 31, .10);
+    /* 动效（克制档：只留交互反馈） */
+    --dur-fast: 120ms; --dur-base: 200ms;
+  }
+
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body {
-    font-family: "Microsoft YaHei", "PingFang SC", sans-serif;
-    font-size: 18px; line-height: 1.6;
-    background: #f5f6f8; color: #222;
-    max-width: 640px; margin: 0 auto; padding: 16px;
+    font-family: var(--font-body);
+    font-size: var(--fs-base); line-height: 1.65;
+    background: var(--c-bg); color: var(--c-fg);
+    max-width: 640px; margin: 0 auto; padding: var(--sp-2);
   }
-  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
-  h1 { font-size: 24px; }
+  /* 键盘焦点可见（可访问性底线） */
+  :focus-visible { outline: 3px solid var(--c-ring); outline-offset: 2px; border-radius: 4px; }
+
+  header { display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--sp-2); }
+  h1 { font-size: var(--fs-lg); font-weight: 700; }
+
+  /* 按钮五态：默认/悬停/按下/禁用/小号——一屏只有一个实心主按钮 */
   .btn {
-    display: inline-block; border: none; border-radius: 10px; cursor: pointer;
-    padding: 12px 20px; font-size: 18px; background: #2f6fed; color: #fff;
+    display: inline-block; border: none; border-radius: var(--radius); cursor: pointer;
+    padding: 12px 20px; font-size: var(--fs-base); font-weight: 500; font-family: inherit;
+    background: var(--c-primary); color: var(--c-on-primary);
+    transition: transform var(--dur-fast) ease-out, filter var(--dur-fast) ease-out, opacity var(--dur-fast) ease-out;
   }
-  .btn.green { background: #1d9e55; }
-  .btn.gray { background: #8a94a6; }
-  .btn.small { padding: 8px 14px; font-size: 16px; }
-  .card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.08); }
-  .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px; border-bottom: 1px solid #eee; }
+  .btn:hover { filter: brightness(1.08); }
+  .btn:active { transform: scale(0.97); filter: brightness(0.94); }   /* 按压反馈 ≤150ms */
+  .btn:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn.green { background: var(--c-accent); color: var(--c-on-accent); }
+  .btn.ghost { background: var(--c-card); color: var(--c-primary); border: 1px solid var(--c-border); }
+  .btn.small { padding: 8px 14px; font-size: var(--fs-sm); }
+
+  /* 卡片 = el-1 深度 + 边框（浅色主题最稳的分层配方） */
+  .card {
+    background: var(--c-card); color: var(--c-card-fg);
+    border: 1px solid var(--c-border); border-radius: var(--radius);
+    padding: var(--sp-2); margin-bottom: var(--sp-2); box-shadow: var(--shadow-el-1);
+  }
+  .item { display: flex; justify-content: space-between; align-items: center; padding: 12px 4px; border-bottom: 1px solid var(--c-border); }
   .item:last-child { border-bottom: none; }
-  .item .main { font-size: 20px; }
-  .item.done .main { color: #1d9e55; text-decoration: line-through; }
-  .empty { text-align: center; color: #8a94a6; padding: 32px 0; }
-  form { display: flex; gap: 8px; flex-wrap: wrap; }
+  .item .main { font-size: var(--fs-md); font-weight: 500; }
+  .item.done .main { color: var(--c-muted-fg); text-decoration: line-through; }
+  .empty { text-align: center; color: var(--c-muted-fg); padding: var(--sp-3) 0; }
+  form { display: flex; gap: var(--sp-1); flex-wrap: wrap; }
+  label { display:block; font-size: var(--fs-sm); font-weight: 500; color: var(--c-muted-fg); margin-bottom: 4px; }
   input, select {
-    font-size: 18px; padding: 10px; border: 1px solid #ccc; border-radius: 8px; flex: 1; min-width: 120px;
+    font-size: var(--fs-base); font-family: inherit; padding: 10px;
+    border: 1px solid var(--c-border); border-radius: var(--radius); flex: 1; min-width: 120px;
+    background: var(--c-card); color: var(--c-fg);
   }
-  .tip { color: #8a94a6; font-size: 14px; margin-top: 8px; }
+  .tip { color: var(--c-muted-fg); font-size: var(--fs-sm); margin-top: var(--sp-1); }
+  /* 数字/金额列对齐（账目类必开） */
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* 加载骨架：形状 = 内容形状，不用孤零零转圈 */
+  .skeleton { border-radius: 6px; background: var(--c-muted); position: relative; overflow: hidden; min-height: 1.2em; }
+  .skeleton::after { content: ""; position: absolute; inset: 0; transform: translateX(-100%);
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.5), transparent);
+    animation: shimmer 1.2s infinite; }
+  @keyframes shimmer { to { transform: translateX(100%); } }
+
+  /* 动效兜底：系统开了"减少动态效果"就全部关掉 */
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
+  }
 </style>
 </head>
 <body>
 <header>
   <h1 id="app-title">我的小助手</h1>
-  <button class="btn small gray" onclick="exportData()">导出备份</button>
+  <button class="btn small ghost" onclick="exportData()">导出备份</button>
 </header>
 
-<!-- 空状态：第一次打开时给用户一句友好提示 -->
+<!-- 空状态：一句温度话 + 一个明确的下一步 -->
 <div class="card" id="empty-box" style="display:none">
   <div class="empty">这里还是空的，先从下面添加一条吧</div>
 </div>
@@ -52,7 +112,10 @@
 
 <div class="card">
   <form onsubmit="return addItem(event)">
-    <input id="inp-text" type="text" placeholder="填点什么…" required>
+    <div style="flex:2; min-width: 160px;">
+      <label for="inp-text">记点什么</label>
+      <input id="inp-text" type="text" placeholder="例如：周三交物业费" required>
+    </div>
     <button class="btn" type="submit">添加</button>
   </form>
   <div class="tip">数据自动保存在电脑里，关掉再打开还在。重要的话点右上角"导出备份"。</div>
@@ -77,8 +140,8 @@ function render() {
     <div class="item ${it.done ? "done" : ""}">
       <span class="main">${it.text}</span>
       <span>
-        <button class="btn small ${it.done ? "gray" : "green"}" onclick="toggle(${i})">${it.done ? "已完成" : "完成"}</button>
-        <button class="btn small gray" onclick="removeItem(${i})">删除</button>
+        <button class="btn small ${it.done ? "ghost" : "green"}" onclick="toggle(${i})">${it.done ? "已完成" : "完成"}</button>
+        <button class="btn small ghost" onclick="removeItem(${i})">删除</button>
       </span>
     </div>`).join("");
 }
@@ -91,7 +154,9 @@ function addItem(e) {
   return false;
 }
 function toggle(i) { items[i].done = !items[i].done; save(); render(); }
-function removeItem(i) { if (confirm("确定删除这一条吗？")) { items.splice(i, 1); save(); render(); } }
+function removeItem(i) {
+  if (confirm("删除后不可恢复，确定删除这一条吗？")) { items.splice(i, 1); save(); render(); }
+}
 
 /* 备份/恢复：导出 JSON 文件（质量底线，G3 机器检查"导出/备份"字样） */
 function exportData() {

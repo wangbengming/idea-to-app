@@ -165,24 +165,31 @@ def _page(title, body, user=None, msg=""):
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{html.escape(title)}</title>
 <style>
-*{{box-sizing:border-box}} body{{margin:0;font-family:system-ui,"Microsoft YaHei",sans-serif;background:#f5f6f8;color:#222}}
+/* 设计令牌（唯一改色处：照 02-设计方案「设计令牌」节换值，页面不得写令牌外裸值） */
+:root{{--c-primary:#1D4ED8;--c-on-primary:#FFF;--c-bg:#F4F6F9;--c-fg:#1F2328;--c-card:#FFF;--c-muted-fg:#5B6472;--c-border:#E3E8EF;--c-side:#1F2937;--c-on-side:#C7D0DC;--c-danger:#DC2626;--c-ok-bg:#EAF7EF;--c-ok-border:#B5E3C6;--c-ok-fg:#1B6E3D;--c-ring:#1D4ED8;--radius:10px;--shadow-el1:0 1px 3px rgba(15,23,42,.08);--dur:120ms}}
+*{{box-sizing:border-box}} body{{margin:0;font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--c-bg);color:var(--c-fg);line-height:1.6}}
+:focus-visible{{outline:3px solid var(--c-ring);outline-offset:2px}}
 .wrap{{display:flex;min-height:100vh}}
-.side{{width:200px;background:#1f2937;color:#cbd5e1;padding:18px 0;flex-shrink:0}}
-.side a{{display:block;color:#cbd5e1;text-decoration:none;padding:12px 20px;font-size:15px}}
-.side a:hover{{background:#374151;color:#fff}}
+.side{{width:200px;background:var(--c-side);color:var(--c-on-side);padding:18px 0;flex-shrink:0}}
+.side a{{display:block;color:var(--c-on-side);text-decoration:none;padding:12px 20px;font-size:15px}}
+.side a:hover{{background:rgba(255,255,255,.08);color:#FFF}}
 .main{{flex:1;padding:24px;max-width:960px}}
-h1{{font-size:22px;margin:0 0 16px}}
-.btn{{display:inline-block;background:#2563eb;color:#fff;border:0;border-radius:8px;padding:10px 18px;font-size:15px;cursor:pointer;text-decoration:none}}
-.btn.red{{background:#dc2626}} .btn.gray{{background:#6b7280}}
-table{{width:100%;border-collapse:collapse;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 1px 3px rgba(0,0,0,.08)}}
-th,td{{padding:10px 12px;text-align:left;border-bottom:1px solid #eee;font-size:14px}}
-tr:hover td{{background:#f0f6ff}}
-.msg{{background:#dcfce7;border:1px solid #86efac;color:#166534;padding:10px 14px;border-radius:8px;margin-bottom:14px}}
-.card{{background:#fff;border-radius:8px;box-shadow:0 1px 3px rgba(0,0,0,.08);padding:20px;margin-bottom:16px}}
-input,select{{padding:9px 10px;border:1px solid #cbd5e1;border-radius:6px;font-size:15px;width:100%;max-width:360px}}
-label{{display:block;margin:12px 0 4px;font-size:14px}}
-.pages a,.pages span{{margin-right:8px;text-decoration:none;color:#2563eb}}
-.who{{margin-left:8px;color:#94a3b8;font-size:13px}}
+h1{{font-size:22px;font-weight:700;margin:0 0 16px}}
+.btn{{display:inline-block;background:var(--c-primary);color:var(--c-on-primary);border:0;border-radius:var(--radius);padding:10px 18px;font-size:15px;font-weight:500;cursor:pointer;text-decoration:none;transition:transform var(--dur) ease-out,filter var(--dur) ease-out,opacity var(--dur) ease-out}}
+.btn:hover{{filter:brightness(1.1)}} .btn:active{{transform:scale(.97);filter:brightness(.95)}} .btn:disabled{{opacity:.45;cursor:not-allowed;transform:none}}
+.btn.red{{background:var(--c-danger)}} .btn.gray{{background:var(--c-muted-fg)}}
+table{{width:100%;border-collapse:collapse;background:var(--c-card);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow-el1)}}
+th,td{{padding:10px 12px;text-align:left;border-bottom:1px solid var(--c-border);font-size:14px}}
+th{{font-weight:500;color:var(--c-muted-fg)}}
+.num{{font-variant-numeric:tabular-nums}}
+tr:hover td{{background:#F0F5FB}}
+.msg{{background:var(--c-ok-bg);border:1px solid var(--c-ok-border);color:var(--c-ok-fg);padding:10px 14px;border-radius:var(--radius);margin-bottom:14px}}
+.card{{background:var(--c-card);border:1px solid var(--c-border);border-radius:var(--radius);box-shadow:var(--shadow-el1);padding:20px;margin-bottom:16px}}
+input,select{{padding:9px 10px;border:1px solid var(--c-border);border-radius:6px;font-size:15px;width:100%;max-width:360px;font-family:inherit;background:var(--c-card);color:var(--c-fg)}}
+label{{display:block;margin:12px 0 4px;font-size:14px;font-weight:500;color:var(--c-muted-fg)}}
+.pages a,.pages span{{margin-right:8px;text-decoration:none;color:var(--c-primary)}}
+.who{{margin-left:8px;color:var(--c-on-side);font-size:13px;opacity:.75}}
+@media (prefers-reduced-motion: reduce){{*{{animation:none!important;transition:none!important}}}}
 @media(max-width:640px){{.wrap{{flex-direction:column}}.side{{width:100%;padding:6px 0}}.side a{{display:inline-block;padding:10px 14px}}.main{{padding:14px}}}}
 </style></head><body>
 <div class="wrap"><div class="side">
@@ -197,12 +204,15 @@ def _login_page(msg="", username=""):
     return f"""<!DOCTYPE html>
 <html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>登录</title><style>
-body{{font-family:system-ui,"Microsoft YaHei",sans-serif;background:#f5f6f8;display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0}}
-.box{{background:#fff;padding:32px;border-radius:12px;box-shadow:0 2px 12px rgba(0,0,0,.1);width:320px}}
-h1{{font-size:20px;margin:0 0 16px;text-align:center}}
-input{{width:100%;padding:10px;margin:6px 0 12px;border:1px solid #cbd5e1;border-radius:6px;font-size:15px}}
-button{{width:100%;padding:11px;background:#2563eb;color:#fff;border:0;border-radius:8px;font-size:15px;cursor:pointer}}
-.err{{background:#fee2e2;color:#991b1b;padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:10px}}
+:root{{--c-primary:#1D4ED8;--c-on-primary:#FFF;--c-bg:#F4F6F9;--c-fg:#1F2328;--c-card:#FFF;--c-muted-fg:#5B6472;--c-border:#E3E8EF;--c-danger-bg:#FEE9E9;--c-danger-fg:#991B1B;--c-ring:#1D4ED8;--radius:12px;--shadow:0 2px 12px rgba(15,23,42,.10);--dur:120ms}}
+body{{font-family:system-ui,"PingFang SC","Microsoft YaHei",sans-serif;background:var(--c-bg);display:flex;justify-content:center;align-items:center;min-height:100vh;margin:0;color:var(--c-fg)}}
+:focus-visible{{outline:3px solid var(--c-ring);outline-offset:2px}}
+.box{{background:var(--c-card);padding:32px;border-radius:var(--radius);box-shadow:var(--shadow);width:320px}}
+h1{{font-size:20px;font-weight:700;margin:0 0 16px;text-align:center}}
+input{{width:100%;padding:10px;margin:6px 0 12px;border:1px solid var(--c-border);border-radius:8px;font-size:15px;font-family:inherit;background:var(--c-card);color:var(--c-fg)}}
+button{{width:100%;padding:11px;background:var(--c-primary);color:var(--c-on-primary);border:0;border-radius:8px;font-size:15px;font-weight:500;cursor:pointer;transition:transform var(--dur) ease-out,filter var(--dur) ease-out}}
+button:hover{{filter:brightness(1.1)}} button:active{{transform:scale(.97)}}
+.err{{background:var(--c-danger-bg);color:var(--c-danger-fg);padding:8px 12px;border-radius:6px;font-size:14px;margin-bottom:10px}}
 </style></head><body><div class="box"><h1>管理后台登录</h1>
 {f'<div class="err">{html.escape(msg)}</div>' if msg else ''}
 <form method="post" action="/login">
