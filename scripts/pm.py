@@ -158,6 +158,7 @@ DISPATCH = {
         "output": "团队文档/03-技术方案.md",
         "must": [
             "架构与交付形态（tech-recipes 方案A/B/C/E）+ 为什么它是\"从想用到用上步骤最少\"的",
+            "现代技术栈基线（tech-recipes.md 硬约束）：技术栈必须是当前主流、按实际需求最优——JS 用 const/let、fetch、addEventListener、flex/grid，禁 jQuery/XMLHttpRequest/document.write（verify 机器拦截）；确需框架选当前主流大版本本地引用，禁停止维护的大版本；03「选型说明」写明选型原因四要素：① 结论 ② 需求匹配点（接住 PRD 哪几条、为什么对这个需求最合适）③ 主流与维护依据 ④ 否决项及原因（至少 1 个，含代价），末尾加一行大白话版本，供项目经理向用户汇报方案并征求意见时使用",
             "数据层选型：localStorage / IndexedDB / JSON 文件 / SQLite，按数据量与结构定，写明备份恢复",
             "第三方组件：确需图表/图标等能力时下载发行文件放应用文件夹本地引用，记录名称/版本/许可证（MIT、ISC、CC0 等），严禁 CDN 外链",
             "能力边界核对：对照 tech-recipes 的能力边界表逐条核对 PRD，做不了的功能换形态或列入不做",
@@ -627,6 +628,13 @@ def check_html_text(name, t, errors, warns, external="all", check_viewport=True)
     externals = re.findall(pat, t, flags=re.I)
     if externals:
         errors.append(f"{name}：引用了 {len(externals)} 处外部网络资源（{externals[0][:60]}...）——离线可用不能依赖网络，必须改为内联/本地")
+    # 现代技术栈基线：过时技术机器拦截（基线见 references/tech-recipes.md）
+    # 注：裸 $( 不拦——现代常有人写 const $ = q => document.querySelector(q) 简写，属合法主流
+    legacy = sorted({m.group(0) for m in re.finditer(
+        r"jquery|\$\.ajax\s*\(|\$\.get\s*\(|\$\.post\s*\(|\$\(\s*document\s*\)\s*\.\s*ready|XMLHttpRequest|document\.write\s*\(",
+        t, flags=re.I)})
+    if legacy:
+        errors.append(f"{name}：发现过时技术「{'、'.join(legacy)}」（现代技术栈基线禁用：用原生 DOM API、fetch、模板字符串等当前主流写法替代，见 tech-recipes.md「现代技术栈基线」）")
     if not re.search(r"<meta[^>]+charset", t, flags=re.I):
         errors.append(f"{name}：缺少 <meta charset>（中文会乱码）")
     if not re.search(r"<title>\S+", t, flags=re.I):
@@ -802,6 +810,14 @@ def cmd_gate(args):
         state2, _ = load_state(app_dir)
         errors, _ = run_verify(app_dir, state2)
         checks.append((not errors, "交付物静态检查（verify）" + ("" if not errors else "：" + "；".join(errors))))
+        t03 = read_doc(app_dir, "03")
+        if t03 is None:
+            checks.append((True, "03-技术方案.md 不存在（小型编制兼容；方案用大白话讲清并征得用户同意后开工）"))
+        else:
+            checks.append((nonempty(section_text(t03, "选型说明")),
+                           "03「选型说明」非空（结论 / 需求匹配点 / 主流与维护依据 / 否决项及原因 + 大白话版本）"))
+            checks.append((nonempty(section_text(t03, "用户意见")),
+                           "03「用户意见」非空（方案提出后征求过用户意见并留原话）"))
         t01, t06 = read_doc(app_dir, "01"), read_doc(app_dir, "06")
         checks.append((t06 is not None, "06-开发自查清单.md 存在"))
         if t01 and t06 is not None:
