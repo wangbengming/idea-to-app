@@ -15,6 +15,7 @@ idea-to-app 项目工具箱（项目经理的工程化执行器）
   propose     立一份变更提案（迭代期功能变化的动工凭证：用户原话/大白话/确认原话/功能增量）
   release     发版（要求当前迭代 G3 已通过 + 全部积木块经用户查验），写入发布记录；
               把变更提案的功能增量机器合并进 00-当前功能清单 并归档提案
+  selftest    自测：门禁↔模板契约核对 + 全流程回放（改模板或门禁后必跑）
 
 项目类型（init --type，存于状态文件）：
   tool   单机工具（默认，单文件/多页网页）
@@ -27,6 +28,7 @@ idea-to-app 项目工具箱（项目经理的工程化执行器）
 """
 import argparse
 import json
+import os
 import re
 import shutil
 import sys
@@ -80,6 +82,24 @@ G2_HEADERS = {
 }
 # G4 对测试报告的额外章节要求
 G4_EXTRA_HEADERS = {"admin": ["角色权限测试"], "data": ["异常输入测试"]}
+
+# —— 门禁↔模板契约 ——
+# 以下章节名同时约束两处：assets/templates/ 的模板必须包含它们，gate/release 按（章节名, 提示）校验。
+# 改模板或改门禁后必须跑 `pm.py selftest`，它会逐类型核对这里没列错、模板没漏写。
+# 03-技术方案：G3 校验非空（(章节名, 未过时的提示语)）
+G3_DOC_SECTIONS = (("选型说明", "结论 / 需求匹配点 / 主流与维护依据 / 否决项及原因 + 大白话版本"),
+                   ("用户意见", "方案提出后征求过用户意见并留原话"))
+# 07-安全与隐私清单：G4 校验存在；G4_07_NONEMPTY 另须非空
+G4_DOC_SECTIONS_07 = ("数据分级", "隐私底线", "风险与缓解")
+G4_07_NONEMPTY = ("数据分级",)
+# 00-项目规划书：G2 校验存在（附带"至少 1 块积木块"）
+PLAN_DOC_SECTIONS = ("积木块分解",)
+# 00-当前功能清单：release 合并依赖的两节（顺序固定：功能条目在前、变更史在后）
+BASELINE_DOC_SECTIONS = ("功能条目", "变更史")
+# 变更提案：G3 逐节非空校验（功能增量另按 新增/修改/移除 三小节机器解析）
+PROPOSAL_DOC_SECTIONS = (("为什么改", "用户原话逐字"),
+                         ("改什么", "大白话"),
+                         ("用户确认", "点头原话在案，动工前拿到"))
 
 # 各岗位派工单骨架（判断性内容由项目经理补齐后再派给子代理）
 # type_must：按项目类型追加的增量要求（key = init --type，见 references/project-types.md）
@@ -498,10 +518,11 @@ def append_history(bp, line):
 def rewrite_baseline(bp, entries):
     """用合并后的条目重写「功能条目」节，保留文件头注释与「变更史」节。"""
     t = bp.read_text(encoding="utf-8")
-    m1 = re.search(r"^##\s*功能条目\s*$", t, flags=re.M)
-    m2 = re.search(r"^##\s*变更史\s*$", t, flags=re.M)
+    head, tail = BASELINE_DOC_SECTIONS
+    m1 = re.search(rf"^##\s*{re.escape(head)}\s*$", t, flags=re.M)
+    m2 = re.search(rf"^##\s*{re.escape(tail)}\s*$", t, flags=re.M)
     if not (m1 and m2 and m1.start() < m2.start()):
-        fail("00-当前功能清单.md 缺「功能条目」或「变更史」章节（格式见技能 assets/templates/00-当前功能清单.md）")
+        fail(f"00-当前功能清单.md 缺「{head}」或「{tail}」章节（格式见技能 assets/templates/00-当前功能清单.md）")
     # 条目标题统一为三级（提案里写的是四级 ####，进基线归一为 ###）
     block = "\n\n".join(f"{re.sub(r'^#{3,4}', '###', title)}\n{txt.strip()}" for _, title, txt in entries) + "\n"
     t = t[: m1.end()] + "\n\n" + block + "\n" + t[m2.start():].rstrip() + "\n"
@@ -975,8 +996,9 @@ def cmd_gate(args):
         else:
             pbody = strip_comments(t00)
             blocks = plan_blocks(pbody)
-            checks.append((bool(re.search(r"^#+\s*积木块分解", pbody, flags=re.M)) and blocks,
-                           f"章节「积木块分解」存在且至少 1 块（当前 {len(blocks)} 块）"))
+            for h in PLAN_DOC_SECTIONS:
+                checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", pbody, flags=re.M)) and blocks,
+                               f"章节「{h}」存在且至少 1 块（当前 {len(blocks)} 块）"))
             if t01:
                 need_all = set(ac_ids(strip_comments(t01)))
                 must_txt = section_text(strip_comments(t01), "必须有")
@@ -995,10 +1017,8 @@ def cmd_gate(args):
         if t03 is None:
             checks.append((True, "03-技术方案.md 不存在（小型编制兼容；方案用大白话讲清并征得用户同意后开工）"))
         else:
-            checks.append((nonempty(section_text(t03, "选型说明")),
-                           "03「选型说明」非空（结论 / 需求匹配点 / 主流与维护依据 / 否决项及原因 + 大白话版本）"))
-            checks.append((nonempty(section_text(t03, "用户意见")),
-                           "03「用户意见」非空（方案提出后征求过用户意见并留原话）"))
+            for h, hint in G3_DOC_SECTIONS:
+                checks.append((nonempty(section_text(t03, h)), f"03「{h}」非空（{hint}）"))
         t01, t06 = read_doc(app_dir, "01"), read_doc(app_dir, "06")
         checks.append((t06 is not None, "06-开发自查清单.md 存在"))
         if t01 and t06 is not None:
@@ -1031,9 +1051,8 @@ def cmd_gate(args):
             if not p.exists():
                 continue
             body = strip_comments(p.read_text(encoding="utf-8"))
-            checks.append((nonempty(section_text(body, "为什么改")), f"变更「{c['name']}」：为什么改 非空（用户原话）"))
-            checks.append((nonempty(section_text(body, "改什么")), f"变更「{c['name']}」：改什么 非空（大白话）"))
-            checks.append((nonempty(section_text(body, "用户确认")), f"变更「{c['name']}」：用户确认原话在案（点头才许动工）"))
+            for h, hint in PROPOSAL_DOC_SECTIONS:
+                checks.append((nonempty(section_text(body, h)), f"变更「{c['name']}」：「{h}」非空（{hint}）"))
             added, modified, removed = parse_delta(body)
             checks.append((bool(added or modified or removed),
                            f"变更「{c['name']}」：功能增量至少一条（当前 新增{len(added)}/修改{len(modified)}/移除{len(removed)}）"))
@@ -1072,10 +1091,11 @@ def cmd_gate(args):
             checks.append((t07 is not None, "07-安全与隐私清单.md 存在（安全工程师产出）"))
             if t07 is not None:
                 sbody = strip_comments(t07)
-                for h in ("数据分级", "隐私底线", "风险与缓解"):
+                for h in G4_DOC_SECTIONS_07:
                     checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", sbody, flags=re.M)),
                                    f"安全清单章节「{h}」存在"))
-                checks.append((nonempty(section_text(sbody, "数据分级")), "数据分级非空"))
+                for h in G4_07_NONEMPTY:
+                    checks.append((nonempty(section_text(sbody, h)), f"安全清单「{h}」非空"))
         # 当前功能清单（"现在真相"基线）：发版前必须建好；此后只经 release 合并变更增量
         base = baseline_items(app_dir)
         if base is None:
@@ -1217,6 +1237,314 @@ def cmd_release(args):
         print("   别忘了同步更新《我的应用.md》和《使用说明.txt》（用户可见文档）。")
 
 
+# ---------- 自测（selftest）----------
+# 两个职责：① 契约核对——门禁要求的章节，每类模板里必须真的有（防"改了模板忘改门禁"的静默漂移）；
+# ② 全流程回放——用最小夹具把 init→G1→G2→checkpoint→verify→G3→G4→release→propose→合并 全走一遍
+# （含负例：门禁该拦的必须拦住）。改模板、改门禁、改合并逻辑后必跑。
+
+def _st_shell(cmd_list):
+    """子进程跑一条 pm.py 命令，返回 (returncode, 合并输出)。"""
+    import subprocess
+    r = subprocess.run(
+        [sys.executable, str(Path(__file__).resolve()), *cmd_list],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
+    )
+    return r.returncode, (r.stdout or "") + (r.stderr or "")
+
+
+ST_DOC01 = """# 01 需求文档-PRD（selftest 夹具）
+## 产品定义
+记一笔账的小工具。
+## 用户画像
+中老年，手机与电脑混用。
+## 用户故事
+用户打开就能记一笔。
+## 用户旅程
+打开 → 点大按钮 → 完成。
+## 同类调研
+参考两款记账工具。
+## 必须有
+- [ ] AC-01 记一笔 ≤2 次点击
+- [ ] AC-02 列表 1 屏显示最近 10 条
+## 以后再说
+- 月度统计
+## 不做清单
+- 多用户
+## 待确认
+（无）
+"""
+
+ST_DOC02 = """# 02 设计方案（selftest 夹具）
+## 风格定位
+气质：克制、家常、清楚；族：瑞士极简。
+## 页面清单
+单页：记账页（覆盖 AC-01、AC-02）。
+## 交互
+点大按钮即记一笔；列表默认显示 10 条。
+## 视觉
+具体值全在令牌节。
+## 设计令牌
+:root { --c-primary: #92400E; }
+## 趋势侦察
+查了当前主流工具类界面。
+## 体验自查
+即时反馈：过。
+## 基线自查
+克制：无渐变无发光。
+"""
+
+ST_DOC00 = """# 00 项目规划书（selftest 夹具）
+## 项目总览
+单文件网页小工具。
+## 积木块分解
+### M1 骨架
+- 包含 AC：AC-01, AC-02
+- 前置：无
+- 完成标准：能记账能看列表
+## 查验安排
+拼好演示给用户。
+## 发布与部署预排
+暂无。
+## 变更记录
+（无）
+"""
+
+ST_DOC03 = """# 03 技术方案（selftest 夹具）
+## 选型说明
+结论：方案 A 单文件网页。需求匹配：双击即用。主流依据：原生 HTML/CSS/JS。否决项：引 React 需构建链。
+大白话版本：一个双击就能用的网页，不用装任何东西。
+## 用户意见
+用户：可以，就这么做。
+"""
+
+ST_DOC04 = """# 04 测试报告（selftest 夹具）
+## 测试用例
+| 编号 | 步骤 | 预期 | 实际 | 通过 |
+|---|---|---|---|---|
+| TC-01 | 覆盖 AC-01 | 2 击内记一笔 | 通过 | ✅ |
+| TC-02 | 覆盖 AC-02 | 1 屏 10 条 | 通过 | ✅ |
+## bug 清单
+- BUG-001 | 一般 | 按钮偏小 | fixed
+## 待项目经理走查清单
+- 主流程一遍
+"""
+
+ST_DOC06 = """# 06 开发自查清单（selftest 夹具）
+## AC 自查
+- [x] AC-01 已实现：大按钮记一笔
+- [x] AC-02 已实现：列表显示 10 条
+## 自审记录
+三人格各 1 条，已修。
+"""
+
+ST_DOC07 = """# 07 安全与隐私清单（selftest 夹具）
+## 数据分级
+记账记录存 localStorage：内部级。
+## 存储与传输
+纯本地，不上传。
+## 输入与攻击面
+无外联、无文件操作。
+## 隐私底线
+最小化收集，可导出。
+## 风险与缓解
+- [一般] 明文 localStorage | 可接受 | fixed
+"""
+
+ST_BASELINE = """# 00 当前功能清单（selftest 夹具）
+
+## 功能条目
+
+### F-001 记一笔账
+- 说明：点大按钮记一笔
+- 来源：AC-01
+
+### F-002 看账单
+- 说明：列表显示最近 10 条
+- 来源：AC-02
+
+## 变更史
+
+- [2026-01-01] 初始发布：首次基线，共 2 项功能
+"""
+
+ST_PROPOSAL = """# 变更提案：加导出（selftest 夹具）
+## 为什么改
+用户："想把账拿去打印。"
+## 改什么
+加导出按钮，点击下载 csv 文件。
+## 用户确认
+"可以，就这样改。"
+## 功能增量
+### 新增
+#### F-003 导出账单
+- 说明：点导出下载 csv
+- 来源：本轮提案
+### 修改
+#### F-001 记一笔账
+- 说明：按钮加大一号，其余不变
+- 来源：本轮提案（调整）
+### 移除
+- F-002：用户说用不上
+## 任务安排
+- 新增块 M2「能导出了」
+"""
+
+ST_HTML = """<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>小账本</title>
+</head>
+<body>
+<button id="add">记一笔</button>
+<button id="backup">备份</button>
+<script>
+const b = document.querySelector('#add');
+b.addEventListener('click', () => { b.textContent = '已记 1 笔'; });
+</script>
+</body>
+</html>
+"""
+
+
+def cmd_selftest(args):
+    import tempfile
+    results = []  # (名称, 是否通过, 失败时的输出摘录)
+
+    def check(name, ok, out=""):
+        results.append((name, bool(ok), (out or "")[:400]))
+
+    # —— A. 契约核对：门禁要求的章节，每类模板里必须真的有 ——
+    for vtype in ("tool", "data", "admin", "front"):
+        pairs = [
+            ("01", G1_HEADERS.get(vtype, G1_HEADERS["tool"])),
+            ("02", G2_HEADERS.get(vtype, G2_HEADERS["tool"])),
+            ("04", G4_EXTRA_HEADERS.get(vtype, [])),
+            ("03", [h for h, _ in G3_DOC_SECTIONS]),
+            ("07", list(G4_DOC_SECTIONS_07)),
+            ("00", list(PLAN_DOC_SECTIONS)),
+        ]
+        for doc_id, headers in pairs:
+            t = template_for(vtype, DOC_FILES[doc_id]).read_text(encoding="utf-8")
+            for h in headers:
+                check(f"契约[{vtype}] {DOC_FILES[doc_id]} 含「{h}」",
+                      re.search(rf"^#+\s*{re.escape(h)}", t, flags=re.M))
+    tb = (TEMPLATES / "00-当前功能清单.md").read_text(encoding="utf-8")
+    for h in BASELINE_DOC_SECTIONS:
+        check(f"契约[功能清单] 含「{h}」", re.search(rf"^##\s*{re.escape(h)}\s*$", tb, flags=re.M))
+    tp = (TEMPLATES / "变更提案.md").read_text(encoding="utf-8")
+    for h, _ in PROPOSAL_DOC_SECTIONS:
+        check(f"契约[提案] 含「{h}」", re.search(rf"^##\s*{re.escape(h)}\s*$", tp, flags=re.M))
+    check("契约[提案] 含「功能增量」节", re.search(r"^##\s*功能增量\s*$", tp, flags=re.M))
+    for sub in ("新增", "修改", "移除"):
+        check(f"契约[提案] 功能增量含「{sub}」小节", re.search(rf"^###\s*{sub}\s*$", tp, flags=re.M))
+    for role, info in DISPATCH.items():
+        check(f"契约[派工] {role} 上游文档编号合法", set(info["docs"]) <= set(DOC_FILES))
+        check(f"契约[派工] {role} 类型增量键合法", set(info.get("type_must", {})) <= set(TYPE_LABEL))
+
+    # —— B. 全流程回放（tool · medium）——
+    with tempfile.TemporaryDirectory(prefix="pm-selftest-") as td:
+        tmp = Path(td)
+        app = tmp / "selftest-app"
+        D = app / "团队文档"
+
+        def run(*a):
+            return _st_shell([*a, "--dir", str(app)])
+
+        def wdoc(doc_id, text):
+            doc_path(app, doc_id).write_text(text, encoding="utf-8")
+
+        rc, out = _st_shell(["init", "selftest-app", "--type", "tool", "--scale", "medium", "--dir", str(tmp)])
+        check("流程 init", rc == 0, out)
+        rc, out = run("gate", "G1")
+        check("G1 未填 PRD 时拦截", rc != 0, out)
+        wdoc("01", ST_DOC01)
+        rc, out = run("gate", "G1")
+        check("G1 填写后通过", rc == 0, out)
+        wdoc("02", ST_DOC02)
+        wdoc("00", ST_DOC00)
+        rc, out = run("gate", "G2")
+        check("G2 通过", rc == 0, out)
+        wdoc("00", ST_DOC00 + "\n### M2 私货\n- 包含 AC：AC-99\n")
+        rc, out = run("gate", "G2")
+        check("G2 拦截规划私加 AC", rc != 0 and "AC-99" in out, out)
+        wdoc("00", ST_DOC00)
+        rc, out = run("dispatch", "pm")
+        check("dispatch 生成派工单并留痕", rc == 0 and (D / "派工" / "pm-brief.md").exists(), out)
+        rc, out = run("checkpoint", "M1")
+        check("checkpoint 未打勾时拦截", rc != 0, out)
+        wdoc("06", ST_DOC06)
+        rc, out = run("checkpoint", "M1", "--note", "用户已确认")
+        check("checkpoint 通过", rc == 0, out)
+        html = app / "小账本.html"
+        html.write_text(ST_HTML, encoding="utf-8")
+        rc, out = run("verify")
+        check("verify 通过", rc == 0, out)
+        html.write_text(ST_HTML.replace("</body>", '<script src="lib/jquery.min.js"></script></body>'), encoding="utf-8")
+        rc, out = run("verify")
+        check("verify 拦截过时技术/缺失本地引用", rc != 0, out)
+        html.write_text(ST_HTML, encoding="utf-8")
+        wdoc("03", ST_DOC03)
+        rc, out = run("gate", "G3")
+        check("G3 通过", rc == 0, out)
+        rc, out = run("gate", "G4")
+        check("G4 缺安全清单/功能清单时拦截", rc != 0, out)
+        wdoc("04", ST_DOC04)
+        wdoc("07", ST_DOC07)
+        (D / "00-当前功能清单.md").write_text(ST_BASELINE, encoding="utf-8")
+        rc, out = run("gate", "G4")
+        check("G4 通过", rc == 0, out)
+        rc, out = run("release", "--note", "首版")
+        check("release 首版", rc == 0, out)
+        rc, out = run("propose", "加导出")
+        check("propose 立提案", rc == 0, out)
+        rc, out = run("propose", "加导出")
+        check("propose 重名拦截", rc != 0, out)
+        rc, out = run("gate", "G3")
+        check("G3 拦截要件不齐的提案", rc != 0, out)
+        (D / "变更" / "加导出" / "提案.md").write_text(ST_PROPOSAL, encoding="utf-8")
+        rc, out = run("gate", "G3")
+        check("G3 提案要件齐全通过", rc == 0, out)
+        rc, out = run("gate", "G4")
+        check("G4 第二轮通过", rc == 0, out)
+        rc, out = run("release", "--note", "加导出")
+        check("release 合并变更", rc == 0, out)
+        state = json.loads((D / "00-项目状态.json").read_text(encoding="utf-8"))
+        check("release 后迭代 +1（第 3 轮）", state["iteration"] == 3)
+        entries = baseline_items(app)
+        check("合并后条目 = F-001, F-003", [f for f, _, _ in entries] == ["F-001", "F-003"])
+        check("F-001 已被提案修改覆盖", any("加大一号" in txt for f, _, txt in entries if f == "F-001"))
+        hist = (D / "00-当前功能清单.md").read_text(encoding="utf-8")
+        check("变更史留痕（含移除 F-002）", "加导出" in hist and "移除 F-002" in hist)
+        check("提案已归档", any((D / "变更" / "归档").glob("*加导出*")))
+        rc, out = run("release", "--note", "不应发出去")
+        check("release 无本轮 G3 时拦截", rc != 0, out)
+
+    # —— C. 解析器回归（v2.4 修过 parse_entries 末位吞节，此处防复发）——
+    sample = "## 功能条目\n\n### F-001 甲\n- x\n\n### F-002 乙\n- y\n\n## 变更史\n\n- [2026-01-01] 初始发布\n"
+    es = parse_entries(sample)
+    check("parse_entries 末位条目不吞「变更史」",
+          [f for f, _, _ in es] == ["F-001", "F-002"] and "变更史" not in es[-1][2])
+    added, modified, removed = parse_delta(
+        "## 功能增量\n### 新增\n#### F-009 t\n- s\n### 修改\n#### F-001 t\n- s\n### 移除\n- F-002：r\n")
+    check("parse_delta 三节解析",
+          [f for f, _, _ in added] == ["F-009"] and [f for f, _, _ in modified] == ["F-001"] and removed == ["F-002"])
+    check("F-编号数字归一", fid_num("F-1") == fid_num("F-001") == 1)
+    check("block_acs 解析", block_acs("### M1 x\n- 包含 AC：AC-01, AC-02\n") == ["AC-01", "AC-02"])
+
+    fails = [(n, d) for n, ok, d in results if not ok]
+    for name, ok, detail in results:
+        print(("✅ " if ok else "❌ ") + name)
+        if not ok and detail:
+            print("    └ " + detail.replace("\n", "\n    "))
+    print(f"\nselftest：{len(results)} 项，通过 {len(results) - len(fails)}，失败 {len(fails)}")
+    if fails:
+        sys.exit(1)
+    print("✅ 全部通过：门禁↔模板契约一致，全流程回放无回归")
+
+
 def main():
     ap = argparse.ArgumentParser(description="idea-to-app 项目工具箱")
     common = argparse.ArgumentParser(add_help=False)
@@ -1270,6 +1598,9 @@ def main():
     p = sub.add_parser("release", help="发版", parents=[common])
     p.add_argument("--note", default="", help="本次大白话改动说明")
     p.set_defaults(fn=cmd_release)
+
+    p = sub.add_parser("selftest", help="自测：门禁↔模板契约核对 + 全流程回放（改模板/门禁后必跑）", parents=[common])
+    p.set_defaults(fn=cmd_selftest)
 
     args = ap.parse_args()
     args.dir = getattr(args, "dir", None)
