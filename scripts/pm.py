@@ -1553,8 +1553,8 @@ def main():
 
     p = sub.add_parser("init", help="初始化项目", parents=[common])
     p.add_argument("name")
-    p.add_argument("--scale", choices=["small", "medium", "large", "xl"], default="medium",
-                   help="编制：small 单人 / medium 标准班组 / large 加独立技术负责人 / xl 前后端分岗")
+    p.add_argument("--scale", choices=["small", "medium", "large", "xl"], default="small",
+                   help="编制：small 单人（默认，证据不足时用） / medium 标准班组 / large 加独立技术负责人 / xl 前后端分岗")
     p.add_argument("--type", choices=["tool", "data", "admin", "front"], default="tool",
                    help="项目类型：tool 单机工具 / data 数据脚本 / admin 管理后台 / front 商用前台")
     p.add_argument("--no-data", action="store_true", help="应用不保存用户数据（纯计算类），verify 不强制备份按钮")
