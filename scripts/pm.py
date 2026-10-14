@@ -160,9 +160,9 @@ DISPATCH = {
         "output": "团队文档/03-技术方案.md",
         "must": [
             "架构与交付形态（tech-recipes 方案A/B/C/E）+ 为什么它是\"从想用到用上步骤最少\"的",
-            "现代技术栈基线（tech-recipes.md 硬约束）：技术栈必须是当前主流、按实际需求最优——JS 用 const/let、fetch、addEventListener、flex/grid，禁 jQuery/XMLHttpRequest/document.write（verify 机器拦截）；确需框架选当前主流大版本本地引用，禁停止维护的大版本；03「选型说明」写明选型原因四要素：① 结论 ② 需求匹配点（接住 PRD 哪几条、为什么对这个需求最合适）③ 主流与维护依据 ④ 否决项及原因（至少 1 个，含代价），末尾加一行大白话版本，供项目经理向用户汇报方案并征求意见时使用",
+            "现代技术栈基线（tech-recipes.md 硬约束）：技术栈必须是当前主流、按实际需求最优——JS 用 const/let、fetch、addEventListener、flex/grid，禁 jQuery/XMLHttpRequest/document.write（verify 机器拦截）；确需框架选当前主流大版本本地引用，禁停止维护的大版本；03「选型说明」写明选型原因四要素：① 结论 ② 需求匹配点（接住 PRD 哪几条、为什么对这个需求最合适）③ 主流与维护依据 ④ 否决项及原因（至少 1 个，含代价），另写一行组件来源（二开了哪些开源组件/样板及改动点、哪些手搓及为什么），末尾加一行大白话版本，供项目经理向用户汇报方案并征求意见时使用",
             "数据层选型：localStorage / IndexedDB / JSON 文件 / SQLite，按数据量与结构定，写明备份恢复",
-            "第三方组件：确需图表/图标等能力时下载发行文件放应用文件夹本地引用，记录名称/版本/许可证（MIT、ISC、CC0 等），严禁 CDN 外链",
+            "开源优先选型（拿来二开）：动笔前先按需求检索成熟开源组件库/样板项目（图表如 Chart.js/ECharts、样式与组件如 Pico.css/Bootstrap、开源 HTML 模板、Python 库等），合身与否过 tech-recipes「开源优先」四关（许可证宽松/维护活跃/兼容双击即用/贴合度，admin 仍以 assets/admin-template.py 为骨架，外部后台模板一般过不了第三关）；合就下载发行文件放应用文件夹本地引用并做二次开发（file:// 形态选 UMD/IIFE 发行版，ESM 双击被拦），在 03 记录名称/版本/许可证（MIT/ISC/Apache-2.0/CC0）与改动点，严禁 CDN 外链；只有手搓更小更稳（如几十行的纯计算工具）才手搓并把理由写进「选型说明」——用现成轮子不需要理由，重造轮子才需要",
             "能力边界核对：对照 tech-recipes 的能力边界表逐条核对 PRD，做不了的功能换形态或列入不做",
             "kill 准则（execution-craft.md 第一节）：能力边界命中的红线问题触发即停——写退回单或换形态，不许\"先做着后面绕\"，不带窟窿出方案",
             "文件结构、性能预算（>1000 条分页、>5MB 换 IndexedDB）、风险与规避",
@@ -195,7 +195,7 @@ DISPATCH = {
         "docs": ["00", "02", "03"],
         "output": "可运行的交付物（放在应用文件夹根目录；以技能 assets/ 内对应类型样板起步：网页 app-template.html、后台 admin-template.py）+ 团队文档/06-开发自查清单.md",
         "must": [
-            "按 00-项目规划书的积木块顺序交付：每拼完一块在汇报中声明\"M 几完成、可查验\"，不打乱顺序（前置块未过用户查验不开始依赖它的块）",
+            "按 00-项目规划书的积木块顺序交付：每拼完一块在汇报中声明\"M 几完成、可查验\"，不打乱顺序（前置块未过用户查验不开始依赖它的块）；03 选定拿来二开的组件/样板是代码基础，在其上扩展，不重造现成轮子",
             "界面实现严格照 02-设计方案：动手第一步就把 02「设计令牌」节的值抄进样板的 :root（不抄=样式必然走样）；「基线自查」各维取值（reduced-motion 兜底、tabular-nums、z-index 阶梯、结构骨架等）一并落地，不走样",
             "组件品质五状态：每个可点元素（默认/悬停/按下/禁用/加载）齐全；数据四境况（常/空/错/载）都有实现",
             "提测前对抗自审（execution-craft.md 第三节，必做）：以破坏者/笨用户新手/隐私官三个人格各找 ≥1 条问题（找不到=没找够），能修的修掉，修不掉的写进 06 末尾「自审记录」连同修法说明",
@@ -435,13 +435,23 @@ def nonempty(text):
 FID_HEADER_RE = re.compile(r"^#{3,4}\s*(F-\d+)\b[^\n]*$", re.M)
 
 
+def fid_num(fid):
+    """F-编号按数字比较（F-1 与 F-001 视为同一编号，避免写法差异造成编号混乱）。"""
+    return int(fid.split("-")[1])
+
+
 def parse_entries(text):
-    """解析 F-编号功能条目（### 或 #### 标题行起），返回有序 [(编号, 标题行, 条目正文)]。"""
+    """解析 F-编号功能条目（### 或 #### 标题行起），返回有序 [(编号, 标题行, 条目正文)]。
+    条目正文止于下一个 F-编号标题或一二级章节标题（防止末条目吞掉后续章节，如「变更史」）。"""
     ms = list(FID_HEADER_RE.finditer(text))
     out = []
     for i, m in enumerate(ms):
         end = ms[i + 1].start() if i + 1 < len(ms) else len(text)
-        out.append((m.group(1), m.group(0).strip(), text[m.end():end]))
+        seg = text[m.end():end]
+        cut = re.search(r"^#{1,2}\s", seg, flags=re.M)
+        if cut:
+            seg = seg[: cut.start()]
+        out.append((m.group(1), m.group(0).strip(), seg))
     return out
 
 
@@ -682,9 +692,15 @@ def cmd_propose(args):
     changes_dir = app_dir / "团队文档" / "变更"
     if args.drop:
         target = next((c for c in state.get("changes", []) if c["name"] == slug and c.get("state") == "open"), None)
-        if target is None:
-            fail(f"没有进行中的变更「{slug}」")
         src = changes_dir / slug
+        if target is None:
+            if not src.exists():
+                fail(f"没有进行中的变更「{slug}」，文件夹也不存在")
+            dest = changes_dir / "归档" / f"{date.today().isoformat()}-{slug}-清理"
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.move(str(src), str(dest))
+            print(f"✅ 变更文件夹「{slug}」无状态记录（手工误建的孤儿），已收编归档：团队文档/变更/归档/{dest.name}/")
+            return
         dest = changes_dir / "归档" / f"{date.today().isoformat()}-{slug}-放弃"
         dest.parent.mkdir(parents=True, exist_ok=True)
         if src.exists():
@@ -745,8 +761,24 @@ def cmd_probe(args):
     print("   提醒：发给用户时必须说明\"这是样品，用来看方向，不是成品\"。")
 
 
-def check_html_text(name, t, errors, warns, external="all", check_viewport=True):
-    """单个 HTML 文本的通用检查。external: all=src/href 都查（单文件自包含），src=只查资源加载。"""
+def check_local_refs(name, t, app_dir, errors):
+    """本地引用完整性：src/href 指向的应用文件夹内文件必须真实存在（开源组件本地化后的白屏防线）。"""
+    missing = []
+    for r in re.findall(r"""(?:src|href)\s*=\s*["']([^"']+)["']""", t):
+        r = r.strip()
+        if not r or re.match(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//|#)", r):
+            continue  # 协议地址 / 协议相对 / 锚点
+        path = r.split("#", 1)[0].split("?", 1)[0]
+        if path and not (app_dir / path).exists():
+            missing.append(r)
+    if missing:
+        shown = "、".join(missing[:3]) + ("等" if len(missing) > 3 else "")
+        errors.append(f"{name}：本地引用的文件不存在：{shown}（开源组件必须真的下载进应用文件夹，漏文件 = 用户双击白屏）")
+
+
+def check_html_text(name, t, errors, warns, external="all", check_viewport=True, app_dir=None, esm_ok=False):
+    """单个 HTML 文本的通用检查。external: all=src/href 都查（单文件自包含），src=只查资源加载；
+    app_dir 提供时校验本地引用文件存在；esm_ok=True 放行 ES module（本地服务形态走 localhost，不受 file:// 限制）。"""
     pat = r"""(?:src|href)\s*=\s*["']https?://[^"']+|@import\s+url\(\s*["']?https?://[^"')]+|url\(\s*["']?https?://[^"')]+"""
     if external == "src":
         pat = r"""(?:src)\s*=\s*["']https?://[^"']+|@import\s+url\(\s*["']?https?://[^"')]+|url\(\s*["']?https?://[^"')]+"""
@@ -754,12 +786,36 @@ def check_html_text(name, t, errors, warns, external="all", check_viewport=True)
     if externals:
         errors.append(f"{name}：引用了 {len(externals)} 处外部网络资源（{externals[0][:60]}...）——离线可用不能依赖网络，必须改为内联/本地")
     # 现代技术栈基线：过时技术机器拦截（基线见 references/tech-recipes.md）
-    # 注：裸 $( 不拦——现代常有人写 const $ = q => document.querySelector(q) 简写，属合法主流
-    legacy = sorted({m.group(0) for m in re.finditer(
-        r"jquery|\$\.ajax\s*\(|\$\.get\s*\(|\$\.post\s*\(|\$\(\s*document\s*\)\s*\.\s*ready|XMLHttpRequest|document\.write\s*\(",
-        t, flags=re.I)})
+    # 注1：裸 $( 不拦——现代常有人写 const $ = q => document.querySelector(q) 简写，属合法主流
+    # 注2：jQuery 按脚本块粒度拦——块内出现 typeof/window jQuery 检测形态（二开库的兼容分支）整块放行；
+    #     无检测形态的应用代码块、脚本外引用（如 src="lib/jquery.min.js"）照拦
+    legacy_pat = r"jquery|\$\.ajax\s*\(|\$\.get\s*\(|\$\.post\s*\(|\$\(\s*document\s*\)\s*\.\s*ready|XMLHttpRequest|document\.write\s*\("
+
+    def _legacy_hits(text):
+        return {m.group(0) for m in re.finditer(legacy_pat, text, flags=re.I)}
+
+    legacy = set()
+    pos = 0
+    for m in re.finditer(r"<script\b[^>]*>.*?</script\s*>", t, flags=re.I | re.S):
+        legacy |= _legacy_hits(t[pos:m.start()])
+        block = m.group(0)
+        if not re.search(r"(?:typeof\s+[Jj][Qq]uery|window\s*\.\s*[Jj][Qq]uery)", block):
+            legacy |= _legacy_hits(block)
+        pos = m.end()
+    legacy |= _legacy_hits(t[pos:])
+    legacy = sorted(legacy)
     if legacy:
         errors.append(f"{name}：发现过时技术「{'、'.join(legacy)}」（现代技术栈基线禁用：用原生 DOM API、fetch、模板字符串等当前主流写法替代，见 tech-recipes.md「现代技术栈基线」）")
+    # file:// 兼容：ES module 外部文件双击打开会被浏览器拦截（本地组件须用 UMD/IIFE 发行版；服务端形态不受限）
+    if not esm_ok:
+        esm_ext = re.findall(r"""<script[^>]*\btype=["']module["'][^>]*\bsrc=["'][^"']+["']""", t, flags=re.I)
+        esm_inline = [m for m in re.finditer(r"""<script[^>]*\btype=["']module["'][^>]*>(.*?)</script>""", t, flags=re.I | re.S)
+                      if re.search(r"\bimport\b", m.group(1))]
+        if esm_ext or esm_inline:
+            errors.append(f"{name}：{len(esm_ext) + len(esm_inline)} 处 ES module 引用（file:// 双击打开会被浏览器拦截——"
+                          f"本地组件须选 UMD/IIFE 发行版用普通 script 引用或内联；本地服务形态不受此限）")
+    if app_dir is not None:
+        check_local_refs(name, t, app_dir, errors)
     if not re.search(r"<meta[^>]+charset", t, flags=re.I):
         errors.append(f"{name}：缺少 <meta charset>（中文会乱码）")
     if not re.search(r"<title>\S+", t, flags=re.I):
@@ -793,7 +849,7 @@ def verify_html(app_dir, state, vtype):
         return errors, warns
     texts = {p.name: p.read_text(encoding="utf-8", errors="replace") for p in htmls}
     for name, t in texts.items():
-        check_html_text(name, t, errors, warns, check_viewport=(vtype != "front"))
+        check_html_text(name, t, errors, warns, check_viewport=(vtype != "front"), app_dir=app_dir)
         if vtype == "front" and not re.search(r'name="viewport"', t, flags=re.I):
             errors.append(f"{name}：缺少 viewport meta（商用前台必须手机可用）")
     if vtype == "front" and len(htmls) > 1 and not (app_dir / "index.html").exists():
@@ -825,7 +881,7 @@ def verify_data(app_dir, state):
             warns.append(f"{p.name}：疑似写死盘符绝对路径（换电脑会失效），请改相对路径")
     # 脚本生成的 html 报告也算交付物，做基础检查
     for p in app_dir.glob("*.html"):
-        check_html_text(p.name, p.read_text(encoding="utf-8", errors="replace"), errors, warns)
+        check_html_text(p.name, p.read_text(encoding="utf-8", errors="replace"), errors, warns, app_dir=app_dir)
     return errors, warns
 
 
@@ -853,7 +909,7 @@ def verify_admin(app_dir, state):
     for p in bats:
         check_bat(p, app_dir, errors)
     for p in app_dir.glob("*.html"):
-        check_html_text(p.name, p.read_text(encoding="utf-8", errors="replace"), errors, warns, external="src")
+        check_html_text(p.name, p.read_text(encoding="utf-8", errors="replace"), errors, warns, external="src", app_dir=app_dir, esm_ok=True)
     return errors, warns
 
 
@@ -952,8 +1008,24 @@ def cmd_gate(args):
             checks.append((need and not unchecked,
                            f"自查清单：{len(need) - len(unchecked)}/{len(need)} 条 AC 已实现"
                            + (f"，未勾选 {unchecked}" if unchecked else "")))
-        # 变更提案（迭代期）：挂着 open 提案时逐份校验要件齐全
-        for c in [c for c in state.get("changes", []) if c.get("state") == "open"]:
+        # 开源优先配套审计：交付物本地引用了二开组件（.min 压缩件 / lib/ vendor/ 目录）时，03 须记组件许可证
+        vendored = set()
+        for p in app_dir.glob("*.html"):
+            for r in re.findall(r"""(?:src|href)\s*=\s*["']([^"']+\.(?:js|css))["']""", p.read_text(encoding="utf-8", errors="replace")):
+                r = r.strip()
+                if not re.match(r"^(?:[a-zA-Z][a-zA-Z0-9+.-]*:|//|#)", r) and (".min." in r or r.startswith(("lib/", "vendor/"))):
+                    vendored.add(r)
+        if vendored:
+            t03v = read_doc(app_dir, "03")
+            if t03v is not None:
+                checks.append((bool(re.search(r"许可证", strip_comments(t03v))),
+                               f"03 记录了二开组件的许可证/来源（检测到本地组件：{sorted(vendored)[:3]}）"))
+        # 变更提案（迭代期）：挂着 open 提案时逐份校验要件齐全；一次只做一份，其余排队等下一轮
+        open_changes = [c for c in state.get("changes", []) if c.get("state") == "open"]
+        if len(open_changes) > 1:
+            checks.append((False, "进行中的变更提案应 ≤1（一次只做一份；其余诉求先记\"以后再说\"，做完发版再立下一份）："
+                           + "、".join(c["name"] for c in open_changes)))
+        for c in open_changes:
             p = app_dir / "团队文档" / "变更" / c["name"] / "提案.md"
             checks.append((p.exists(), f"变更「{c['name']}」：提案文件存在"))
             if not p.exists():
@@ -967,8 +1039,8 @@ def cmd_gate(args):
                            f"变更「{c['name']}」：功能增量至少一条（当前 新增{len(added)}/修改{len(modified)}/移除{len(removed)}）"))
             base = baseline_items(app_dir)
             if base:
-                ids = {fid for fid, _, _ in base}
-                bad = sorted(({fid for fid, _, _ in modified} | set(removed)) - ids)
+                nums = {fid_num(fid) for fid, _, _ in base}
+                bad = sorted(f for f in ({fid for fid, _, _ in modified} | set(removed)) if fid_num(f) not in nums)
                 checks.append((not bad, f"变更「{c['name']}」：修改/移除的编号都在功能清单里" + (f"（未知 {bad}）" if bad else "")))
     elif g == "G4":
         t01, t04 = read_doc(app_dir, "01"), read_doc(app_dir, "04")
@@ -1056,29 +1128,34 @@ def merge_open_changes(app_dir, state, f):
         entries = parse_entries(strip_comments(bp.read_text(encoding="utf-8")))
         if not entries:
             fail("00-当前功能清单.md 还没有功能条目——先把当前版本的功能补进去，再合并变更")
-        ids = [fid for fid, _, _ in entries]
+        entry_nums = {fid_num(fid) for fid, _, _ in entries}
         add_ids = [fid for fid, _, _ in added]
-        if len(set(add_ids)) != len(add_ids):
-            fail(f"变更「{c['name']}」新增编号重复")
-        dup = sorted(set(add_ids) & set(ids))
+        add_nums = [fid_num(f) for f in add_ids]
+        if len(set(add_nums)) != len(add_nums):
+            fail(f"变更「{c['name']}」新增编号重复（F-1 与 F-001 视为同一编号）")
+        dup = sorted({f for f in add_ids if fid_num(f) in entry_nums})
         if dup:
             fail(f"变更「{c['name']}」新增的 {dup} 已在功能清单里（新增用现有最大号顺延的新编号）")
-        mod_map = {fid: (title, txt) for fid, title, txt in modified}
+        mod_map = {fid_num(fid): (title, txt) for fid, title, txt in modified}
         if len(mod_map) != len(modified):
-            fail(f"变更「{c['name']}」修改编号重复")
-        rm_set = set(removed)
-        unknown = sorted((set(mod_map) | rm_set) - set(ids))
+            fail(f"变更「{c['name']}」修改编号重复（F-1 与 F-001 视为同一编号）")
+        rm_nums = {fid_num(f) for f in removed}
+        rm_orig = {fid_num(f): f for f in removed}
+        refs = {fid for fid, _, _ in modified} | set(removed)
+        unknown = sorted(f for f in refs if fid_num(f) not in entry_nums)
         if unknown:
             fail(f"变更「{c['name']}」修改/移除的 {unknown} 不在功能清单里（改/删只能动清单里已有的编号）")
-        clash = sorted(rm_set & (set(add_ids) | set(mod_map)))
-        if clash:
-            fail(f"变更「{c['name']}」对 {clash} 既移除又新增/修改，先理顺提案")
+        clash_nums = rm_nums & (set(add_nums) | set(mod_map))
+        if clash_nums:
+            fail(f"变更「{c['name']}」对 {sorted(rm_orig[n] for n in clash_nums)} 既移除又新增/修改，先理顺提案")
         merged = []
         for fid, title, txt in entries:
-            if fid in rm_set:
+            n = fid_num(fid)
+            if n in rm_nums:
                 continue
-            if fid in mod_map:
-                t2, x2 = mod_map[fid]
+            if n in mod_map:
+                t2, x2 = mod_map[n]
+                t2 = re.sub(r"F-\d+", fid, t2, count=1)  # 条目保留基线的规范编号拼写
                 merged.append((fid, t2, x2))
             else:
                 merged.append((fid, title, txt))
@@ -1088,9 +1165,10 @@ def merge_open_changes(app_dir, state, f):
         if added:
             parts.append("新增 " + "、".join(fid for fid, _, _ in added))
         if modified:
-            parts.append("修改 " + "、".join(sorted(mod_map)))
+            mod_orig = {fid_num(fid): fid for fid, _, _ in modified}
+            parts.append("修改 " + "、".join(mod_orig[n] for n in sorted(mod_map)))
         if removed:
-            parts.append("移除 " + "、".join(sorted(rm_set)))
+            parts.append("移除 " + "、".join(rm_orig[n] for n in sorted(rm_nums)))
         append_history(bp, f"- [{date.today().isoformat()}] {c['name']}：" + "；".join(parts))
         dest = app_dir / "团队文档" / "变更" / "归档" / f"{date.today().isoformat()}-{c['name']}"
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1112,6 +1190,9 @@ def cmd_release(args):
     g3 = state["gates"].get("G3", {})
     if g3.get("iteration") != state["iteration"]:
         fail("本轮迭代尚未通过 G3 提测门，不能发版（先走查、过门）。")
+    g4 = state["gates"].get("G4", {})
+    if state.get("scale") != "small" and g4.get("iteration") != state["iteration"]:
+        fail("中型以上编制发版前必须通过本轮 G4 发布门（积木块全部经用户查验 + 安全清单 + 功能清单在案）；小项目豁免。")
     # 首版发版：功能清单落"初始发布"基线行（此后只经变更合并更新）
     bp = baseline_path(app_dir)
     if state["iteration"] == 1 and bp.exists():
