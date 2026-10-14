@@ -11,8 +11,10 @@ idea-to-app 项目工具箱（项目经理的工程化执行器）
   probe       给样品页打"仅方向参考"横幅并归档到 探索/
   verify      交付物静态检查（按类型分派：网页自包含 / 脚本双击件 / 后台安全底线）
   gate        评审门机器校验（G1 需求 / G2 设计+规划 / G3 提测 / G4 发布）
-  checkpoint  记录一块积木"经用户查验通过"（先机器校验该块 AC 全部打勾）
-  release     发版（要求当前迭代 G3 已通过 + 全部积木块经用户查验），写入发布记录
+  checkpoint  记录一块积木"经用户查验通过"（先机器校验该块 AC 已全部打勾）
+  propose     立一份变更提案（迭代期功能变化的动工凭证：用户原话/大白话/确认原话/功能增量）
+  release     发版（要求当前迭代 G3 已通过 + 全部积木块经用户查验），写入发布记录；
+              把变更提案的功能增量机器合并进 00-当前功能清单 并归档提案
 
 项目类型（init --type，存于状态文件）：
   tool   单机工具（默认，单文件/多页网页）
@@ -428,6 +430,74 @@ def nonempty(text):
     return bool(re.sub(r"[-*\s>#`]", "", body))
 
 
+# ---------- 变更提案（迭代期变更管理：提案 → 用户确认 → release 合并进功能清单并归档）----------
+
+FID_HEADER_RE = re.compile(r"^#{3,4}\s*(F-\d+)\b[^\n]*$", re.M)
+
+
+def parse_entries(text):
+    """解析 F-编号功能条目（### 或 #### 标题行起），返回有序 [(编号, 标题行, 条目正文)]。"""
+    ms = list(FID_HEADER_RE.finditer(text))
+    out = []
+    for i, m in enumerate(ms):
+        end = ms[i + 1].start() if i + 1 < len(ms) else len(text)
+        out.append((m.group(1), m.group(0).strip(), text[m.end():end]))
+    return out
+
+
+def parse_delta(text):
+    """解析提案「功能增量」节（新增/修改/移除）。
+    返回 (新增[(编号,标题,正文)], 修改[(编号,标题,正文)], 移除[编号])。"""
+    m = re.search(r"^#{2,3}\s*功能增量\s*$", text, flags=re.M)
+    if not m:
+        return [], [], []
+    rest = text[m.end():]
+    nxt = re.search(r"^##\s", rest, flags=re.M)
+    body = rest[: nxt.start()] if nxt else rest
+    added, modified, removed = [], [], []
+    for key in ("新增", "修改", "移除"):
+        sec_m = re.search(rf"^###\s*{key}\s*$", body, flags=re.M)
+        if not sec_m:
+            continue
+        sec_rest = body[sec_m.end():]
+        sec_nxt = re.search(r"^###\s", sec_rest, flags=re.M)
+        sec = sec_rest[: sec_nxt.start()] if sec_nxt else sec_rest
+        if key == "移除":
+            removed = re.findall(r"-\s*(F-\d+)\b", sec)
+        else:
+            (added if key == "新增" else modified).extend(parse_entries(sec))
+    return added, modified, removed
+
+
+def baseline_path(app_dir):
+    return app_dir / "团队文档" / "00-当前功能清单.md"
+
+
+def baseline_items(app_dir):
+    """读当前功能清单的功能条目；文件不存在返回 None，存在则返回条目列表（可为空）。"""
+    bp = baseline_path(app_dir)
+    if not bp.exists():
+        return None
+    return parse_entries(strip_comments(bp.read_text(encoding="utf-8")))
+
+
+def append_history(bp, line):
+    bp.write_text(bp.read_text(encoding="utf-8").rstrip() + "\n" + line + "\n", encoding="utf-8")
+
+
+def rewrite_baseline(bp, entries):
+    """用合并后的条目重写「功能条目」节，保留文件头注释与「变更史」节。"""
+    t = bp.read_text(encoding="utf-8")
+    m1 = re.search(r"^##\s*功能条目\s*$", t, flags=re.M)
+    m2 = re.search(r"^##\s*变更史\s*$", t, flags=re.M)
+    if not (m1 and m2 and m1.start() < m2.start()):
+        fail("00-当前功能清单.md 缺「功能条目」或「变更史」章节（格式见技能 assets/templates/00-当前功能清单.md）")
+    # 条目标题统一为三级（提案里写的是四级 ####，进基线归一为 ###）
+    block = "\n\n".join(f"{re.sub(r'^#{3,4}', '###', title)}\n{txt.strip()}" for _, title, txt in entries) + "\n"
+    t = t[: m1.end()] + "\n\n" + block + "\n" + t[m2.start():].rstrip() + "\n"
+    bp.write_text(t, encoding="utf-8")
+
+
 # ---------- 子命令 ----------
 
 def template_for(vtype, fname):
@@ -449,6 +519,19 @@ def cmd_init(args):
     (app_dir / "团队文档" / "派工").mkdir(parents=True)
     for doc_id, fname in DOC_FILES.items():
         shutil.copy(template_for(vtype, fname), app_dir / "团队文档" / fname)
+    # 当前功能清单（"现在真相"基线）：首版发版前填写，此后只经 release 合并变更增量更新
+    shutil.copy(TEMPLATES / "00-当前功能清单.md", app_dir / "团队文档" / "00-当前功能清单.md")
+    # 变更提案目录（迭代期：提案 → 用户确认 → release 合并归档）
+    chg_dir = app_dir / "团队文档" / "变更"
+    chg_dir.joinpath("归档").mkdir(parents=True)
+    (chg_dir / "README.md").write_text(
+        "# 变更提案目录\n\n"
+        "发版后的功能变化先立提案再动工：`pm.py propose <变更名>` 在本目录建 <变更名>/提案.md。\n"
+        "提案经用户确认（原话留案）→ 按「任务安排」追加积木块拼装 → release 时机器把功能增量\n"
+        "合并进 ../00-当前功能清单.md，提案移入 归档/<日期>-<变更名>/。纯修 bug 不立提案；\n"
+        "用户放弃的提案用 `propose <变更名> --drop` 归档。\n",
+        encoding="utf-8",
+    )
     shutil.copy(TEMPLATES / "我的应用.md", app_dir / "我的应用.md")
     shutil.copy(TEMPLATES / "使用说明.txt", app_dir / "使用说明.txt")
     state = {
@@ -504,6 +587,12 @@ def cmd_status(args):
         open_bugs = [b for b in bugs if b[1] == "open"]
         print(f"bug：共 {len(bugs)} 条，未修复 {len(open_bugs)} 条"
               + (f"（严重 open {sum(1 for b in open_bugs if b[0] == '严重')}）" if open_bugs else ""))
+    open_chg = [c["name"] for c in state.get("changes", []) if c.get("state") == "open"]
+    if open_chg:
+        print("变更提案（进行中）：" + "、".join(open_chg) + "（一次只做一份，其余排队）")
+    n_merged = sum(1 for c in state.get("changes", []) if c.get("state") == "merged")
+    if n_merged:
+        print(f"已归档变更：{n_merged} 份（团队文档/变更/归档/；历史见 00-当前功能清单「变更史」）")
 
 
 def cmd_scaffold(args):
@@ -581,6 +670,42 @@ def cmd_checkpoint(args):
         print("   提醒：checkpoint 应在用户看过该块演示并点头之后记录；用户未确认就记录属于违规。")
     remaining = [b for b in blocks if b not in state["blocks"]]
     print(f"   进度：{len(blocks) - len(remaining)}/{len(blocks)}" + (f"，下一块：{remaining[0]}" if remaining else "，全部查验完毕可走 G3 提测"))
+
+
+def cmd_propose(args):
+    """立一份变更提案（迭代期功能变化的动工凭证）；--drop 放弃一份进行中的提案。"""
+    app_dir = find_project(args.dir)
+    state, f = load_state(app_dir)
+    slug = re.sub(r'[\\/:*?"<>|\s]+', "-", args.name).strip("-").rstrip(".")
+    if not slug:
+        fail("变更名不能为空（用中文短名，如：加导出）")
+    changes_dir = app_dir / "团队文档" / "变更"
+    if args.drop:
+        target = next((c for c in state.get("changes", []) if c["name"] == slug and c.get("state") == "open"), None)
+        if target is None:
+            fail(f"没有进行中的变更「{slug}」")
+        src = changes_dir / slug
+        dest = changes_dir / "归档" / f"{date.today().isoformat()}-{slug}-放弃"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        if src.exists():
+            shutil.move(str(src), str(dest))
+        target["state"] = "dropped"
+        bp = baseline_path(app_dir)
+        if bp.exists():
+            append_history(bp, f"- [{date.today().isoformat()}] {slug}：用户放弃，未实施")
+        save_state(app_dir, state, f)
+        print(f"✅ 变更「{slug}」已放弃并归档（未做任何功能改动）：团队文档/变更/归档/{dest.name}/")
+        return
+    if any(c["name"] == slug and c.get("state") == "open" for c in state.get("changes", [])) or (changes_dir / slug).exists():
+        fail(f"变更「{slug}」已存在（团队文档/变更/ 下有同名文件夹；做完发版或 propose {slug} --drop 放弃后再建新的）")
+    dest = changes_dir / slug
+    dest.mkdir(parents=True)
+    shutil.copy(TEMPLATES / "变更提案.md", dest / "提案.md")
+    state.setdefault("changes", []).append({"name": slug, "created": date.today().isoformat(), "state": "open"})
+    save_state(app_dir, state, f)
+    print(f"✅ 变更提案已建立：团队文档/变更/{slug}/提案.md")
+    print("   补齐四件事：为什么改（用户原话）/ 改什么（大白话）/ 用户确认（点头原话，动工前拿到）/ 功能增量（对照 00-当前功能清单 写 新增/修改/移除）。")
+    print("   用户点头原话留进「用户确认」节才许动工（G3 机器校验）；新积木块照「任务安排」追加进 00-项目规划书。")
 
 
 def cmd_probe(args):
@@ -827,6 +952,24 @@ def cmd_gate(args):
             checks.append((need and not unchecked,
                            f"自查清单：{len(need) - len(unchecked)}/{len(need)} 条 AC 已实现"
                            + (f"，未勾选 {unchecked}" if unchecked else "")))
+        # 变更提案（迭代期）：挂着 open 提案时逐份校验要件齐全
+        for c in [c for c in state.get("changes", []) if c.get("state") == "open"]:
+            p = app_dir / "团队文档" / "变更" / c["name"] / "提案.md"
+            checks.append((p.exists(), f"变更「{c['name']}」：提案文件存在"))
+            if not p.exists():
+                continue
+            body = strip_comments(p.read_text(encoding="utf-8"))
+            checks.append((nonempty(section_text(body, "为什么改")), f"变更「{c['name']}」：为什么改 非空（用户原话）"))
+            checks.append((nonempty(section_text(body, "改什么")), f"变更「{c['name']}」：改什么 非空（大白话）"))
+            checks.append((nonempty(section_text(body, "用户确认")), f"变更「{c['name']}」：用户确认原话在案（点头才许动工）"))
+            added, modified, removed = parse_delta(body)
+            checks.append((bool(added or modified or removed),
+                           f"变更「{c['name']}」：功能增量至少一条（当前 新增{len(added)}/修改{len(modified)}/移除{len(removed)}）"))
+            base = baseline_items(app_dir)
+            if base:
+                ids = {fid for fid, _, _ in base}
+                bad = sorted(({fid for fid, _, _ in modified} | set(removed)) - ids)
+                checks.append((not bad, f"变更「{c['name']}」：修改/移除的编号都在功能清单里" + (f"（未知 {bad}）" if bad else "")))
     elif g == "G4":
         t01, t04 = read_doc(app_dir, "01"), read_doc(app_dir, "04")
         checks.append((t04 is not None, "04-测试报告.md 存在"))
@@ -861,6 +1004,12 @@ def cmd_gate(args):
                     checks.append((bool(re.search(rf"^#+\s*{re.escape(h)}", sbody, flags=re.M)),
                                    f"安全清单章节「{h}」存在"))
                 checks.append((nonempty(section_text(sbody, "数据分级")), "数据分级非空"))
+        # 当前功能清单（"现在真相"基线）：发版前必须建好；此后只经 release 合并变更增量
+        base = baseline_items(app_dir)
+        if base is None:
+            checks.append((False, "00-当前功能清单.md 存在（从技能 assets/templates/00-当前功能清单.md 复制；首版发版前把已查验的功能填进「功能条目」）"))
+        else:
+            checks.append((len(base) >= 1, f"00-当前功能清单.md 在案（当前 {len(base)} 项功能）"))
         g3 = state["gates"].get("G3", {})
         checks.append((g3.get("iteration") == state["iteration"], "本轮迭代已过 G3 提测门（项目经理浏览器/真机走查完成）"))
     else:
@@ -883,22 +1032,108 @@ def cmd_gate(args):
     print(f"\n✅ {g} 通过（已记录）。" + (f"进入：{PHASE_LABEL[nxt]}" if g in PHASE_AFTER_GATE else nxt))
 
 
+def merge_open_changes(app_dir, state, f):
+    """把进行中的变更提案增量合并进 00-当前功能清单 并归档提案文件夹；返回合并的变更名。
+    逐份校验（用户确认在案、增量格式合法、编号不冲突）后机器合并：新增追加/修改替换/移除删除。"""
+    open_list = [c for c in state.get("changes", []) if c.get("state") == "open"]
+    bp = baseline_path(app_dir)
+    if not open_list:
+        if bp.exists() and state["iteration"] > 1:
+            append_history(bp, f"- [{date.today().isoformat()}] 第 {state['iteration']} 轮：修复与打磨（无功能变化）")
+        return []
+    if not bp.exists():
+        fail("有进行中的变更提案，但 团队文档/00-当前功能清单.md 不存在——先从技能 assets/templates/ 复制模板，把当前版本的功能填好再发版")
+    for c in open_list:
+        p = app_dir / "团队文档" / "变更" / c["name"] / "提案.md"
+        if not p.exists():
+            fail(f"变更「{c['name']}」缺 提案.md（文件夹损坏；补齐或 propose {c['name']} --drop 放弃）")
+        body = strip_comments(p.read_text(encoding="utf-8"))
+        if not nonempty(section_text(body, "用户确认")):
+            fail(f"变更「{c['name']}」提案「用户确认」为空——用户没点头不许发版（先拿到原话，或 --drop 放弃）")
+        added, modified, removed = parse_delta(body)
+        if not (added or modified or removed):
+            fail(f"变更「{c['name']}」功能增量为空（新增/修改/移除至少一条；纯修 bug 不立提案）")
+        entries = parse_entries(strip_comments(bp.read_text(encoding="utf-8")))
+        if not entries:
+            fail("00-当前功能清单.md 还没有功能条目——先把当前版本的功能补进去，再合并变更")
+        ids = [fid for fid, _, _ in entries]
+        add_ids = [fid for fid, _, _ in added]
+        if len(set(add_ids)) != len(add_ids):
+            fail(f"变更「{c['name']}」新增编号重复")
+        dup = sorted(set(add_ids) & set(ids))
+        if dup:
+            fail(f"变更「{c['name']}」新增的 {dup} 已在功能清单里（新增用现有最大号顺延的新编号）")
+        mod_map = {fid: (title, txt) for fid, title, txt in modified}
+        if len(mod_map) != len(modified):
+            fail(f"变更「{c['name']}」修改编号重复")
+        rm_set = set(removed)
+        unknown = sorted((set(mod_map) | rm_set) - set(ids))
+        if unknown:
+            fail(f"变更「{c['name']}」修改/移除的 {unknown} 不在功能清单里（改/删只能动清单里已有的编号）")
+        clash = sorted(rm_set & (set(add_ids) | set(mod_map)))
+        if clash:
+            fail(f"变更「{c['name']}」对 {clash} 既移除又新增/修改，先理顺提案")
+        merged = []
+        for fid, title, txt in entries:
+            if fid in rm_set:
+                continue
+            if fid in mod_map:
+                t2, x2 = mod_map[fid]
+                merged.append((fid, t2, x2))
+            else:
+                merged.append((fid, title, txt))
+        merged.extend(added)
+        rewrite_baseline(bp, merged)
+        parts = []
+        if added:
+            parts.append("新增 " + "、".join(fid for fid, _, _ in added))
+        if modified:
+            parts.append("修改 " + "、".join(sorted(mod_map)))
+        if removed:
+            parts.append("移除 " + "、".join(sorted(rm_set)))
+        append_history(bp, f"- [{date.today().isoformat()}] {c['name']}：" + "；".join(parts))
+        dest = app_dir / "团队文档" / "变更" / "归档" / f"{date.today().isoformat()}-{c['name']}"
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        n = 2
+        while dest.exists():
+            dest = dest.with_name(f"{date.today().isoformat()}-{c['name']}-{n}")
+            n += 1
+        shutil.move(str(p.parent), str(dest))
+        c["state"] = "merged"
+        c["merged"] = date.today().isoformat()
+        save_state(app_dir, state, f)  # 逐份落盘：中途失败已合并的不回滚
+        print(f"   ✅ 变更「{c['name']}」已并入功能清单并归档：团队文档/变更/归档/{dest.name}/")
+    return [c["name"] for c in open_list]
+
+
 def cmd_release(args):
     app_dir = find_project(args.dir)
     state, f = load_state(app_dir)
     g3 = state["gates"].get("G3", {})
     if g3.get("iteration") != state["iteration"]:
         fail("本轮迭代尚未通过 G3 提测门，不能发版（先走查、过门）。")
+    # 首版发版：功能清单落"初始发布"基线行（此后只经变更合并更新）
+    bp = baseline_path(app_dir)
+    if state["iteration"] == 1 and bp.exists():
+        n = len(parse_entries(strip_comments(bp.read_text(encoding="utf-8"))))
+        if n:
+            append_history(bp, f"- [{date.today().isoformat()}] 初始发布：首次基线，共 {n} 项功能")
+    merged_names = merge_open_changes(app_dir, state, f)
     rec = doc_path(app_dir, "05")
     entry = (f"\n## 第 {state['iteration']} 次发布（{date.today().isoformat()}）\n\n"
              f"- 改动：{args.note or '<由项目经理补写本次大白话改动说明>'}\n"
              f"- 已过评审门：{', '.join(sorted(g for g, v in state['gates'].items() if v.get('iteration') == state['iteration'])) or '—'}\n")
+    if merged_names:
+        entry += f"- 合并变更：{'、'.join(merged_names)}（功能增量已并入 00-当前功能清单，提案归档于 团队文档/变更/归档/）\n"
     rec.write_text(rec.read_text(encoding="utf-8") + entry, encoding="utf-8")
     state["iteration"] += 1
     state["phase"] = "iterate"
     save_state(app_dir, state, f)
     print(f"✅ 已发版并记录到 {rec.name}，进入第 {state['iteration']} 轮迭代。")
-    print("   别忘了同步更新《我的应用.md》和《使用说明.txt》（用户可见文档）。")
+    if merged_names:
+        print("   功能清单已更新（00-当前功能清单.md），别忘了据此同步《我的应用.md》和《使用说明.txt》。")
+    else:
+        print("   别忘了同步更新《我的应用.md》和《使用说明.txt》（用户可见文档）。")
 
 
 def main():
@@ -945,6 +1180,11 @@ def main():
     p.add_argument("block", help="积木块编号，如 M1（须已写在 00-项目规划书中）")
     p.add_argument("--note", default="", help="备注，如：用户已确认 / 用户明示免验（免验须在 05 留用户原话）")
     p.set_defaults(fn=cmd_checkpoint)
+
+    p = sub.add_parser("propose", help="立一份变更提案（迭代期功能变化）", parents=[common])
+    p.add_argument("name", help="变更名（中文短名，如：加导出）")
+    p.add_argument("--drop", action="store_true", help="放弃一份进行中的提案（归档不合并）")
+    p.set_defaults(fn=cmd_propose)
 
     p = sub.add_parser("release", help="发版", parents=[common])
     p.add_argument("--note", default="", help="本次大白话改动说明")
