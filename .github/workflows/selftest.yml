@@ -1,0 +1,28 @@
+name: selftest
+
+on:
+  push:
+    paths:
+      - "scripts/**"
+      - "assets/templates/**"
+      - ".github/workflows/selftest.yml"
+  pull_request:
+    paths:
+      - "scripts/**"
+      - "assets/templates/**"
+
+jobs:
+  selftest:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python: ["3.10", "3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: 契约核对 + 全流程回放
+        run: python scripts/pm.py selftest

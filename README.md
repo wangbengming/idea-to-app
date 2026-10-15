@@ -81,28 +81,33 @@ python "<技能目录>/scripts/pm.py" <子命令>
 | `gate G1\|G2\|G3\|G4` | 评审门机器校验（AC 追溯、严重 bug、类型化章节；G4 查全部块经用户查验 + 安全清单 + 功能清单在案） |
 | `verify` | 交付物静态检查，按类型分派：网页自包含（含本地引用完整性、ESM/过时技术拦截）/ 脚本双击件与编码 / 后台密码加密·登录·备份 |
 | `release --note "…"` | 发版（要求本轮已过 G3，中型以上另须 G4），把变更增量机器合并进《00-当前功能清单》并归档提案 |
-| `selftest` | 自测：门禁↔模板契约核对 + 全流程回放（改模板或门禁后必跑） |
+| `selftest` | 自测：门禁↔模板契约核对 + 全流程回放 + 行为专项（改模板/门禁/数据后必跑；CI 双系统自动跑） |
 
 ## 项目结构
 
 ```
 idea-to-app/
 ├── SKILL.md                  # 路由层：服务边界 + 四条铁律 + 命令表 + 按需加载地图 + 阶段地图
-├── scripts/pm.py             # 项目经理执行器（纯标准库，类型化门禁与检查 + selftest 自测）
+├── scripts/                  # 三层结构（纯标准库；调用方式不变：python scripts/pm.py <子命令>）
+│   ├── pm.py                 # 入口：CLI 装配
+│   ├── pm_engine.py          # 引擎：状态机·四道门·verify·提案合并·selftest 自测（四门各自独立函数）
+│   └── pm_data.py            # 数据：岗位派工卡·类型画像（TYPE_PROFILES 一表收拢）·门禁↔模板契约常量
 ├── assets/
 │   ├── app-template.html     # 网页样板：自包含/中文/大按钮/备份恢复骨架
 │   ├── admin-template.py     # 后台骨架（方案 E）：登录/会话/角色权限/增删改查/备份，纯标准库
 │   └── templates/            # 文档模板：00-规划书 + 00-当前功能清单 + 变更提案 + 01~07 + data/admin/front 类型差异版
-└── references/               # 九册按需加载手册
-    ├── phases.md             # 流程编排：五阶段 + 探索模式 + 持续迭代（变更提案制）
-    ├── project-types.md      # 四类项目手册：归类判定/阶段差异/AC 写法/红线/常见坑
-    ├── team-roles.md         # 职责边界矩阵 + 角色卡（含 fe/be） + 退回机制 + 派工模板
-    ├── tech-recipes.md       # 交付形态 A/B/C/E + 现代技术栈基线 + 开源优先 + 能力边界/性能预算
-    ├── design-craft.md       # 设计工艺册：五步法/风格族谱/五套令牌/区块模式库
-    ├── design-baseline.md    # 设计基线册：防 AI 味禁令清单 + 三证明审计法
-    ├── execution-craft.md    # 执行纪律：数字阈值/虚词黑名单/三人格对抗/操作成本预算
-    ├── phrasebook.md         # 各阶段话术示例（含探索/查验/部署/拒绝）
-    └── deploy-recipes.md     # 阶段 5 部署手册：按类型的部署选项/代价/上线检查清单
+├── references/               # 十册按需加载手册
+│   ├── phases.md             # 流程编排：五阶段 + 探索模式 + 持续迭代（变更提案制）
+│   ├── project-types.md      # 四类项目手册：归类判定/阶段差异/AC 写法/红线/常见坑
+│   ├── team-roles.md         # 职责边界矩阵 + 角色卡（含 fe/be） + 退回机制 + 派工模板
+│   ├── tech-recipes.md       # 交付形态 A/B/C/E + 现代技术栈基线 + 开源优先 + 能力边界/性能预算
+│   ├── design-craft.md       # 设计工艺册：五步法/风格族谱/五套令牌/区块模式库
+│   ├── design-baseline.md    # 设计基线册：防 AI 味禁令清单 + 三证明审计法
+│   ├── execution-craft.md    # 执行纪律：数字阈值/虚词黑名单/三人格对抗/操作成本预算
+│   ├── phrasebook.md         # 各阶段话术示例（含探索/查验/部署/拒绝）
+│   ├── file-formats.md       # 文件格式规约：机器解析格式的单一权威（AC/积木块/F-编号/提案/状态机 schema）+ 同步义务表
+│   └── deploy-recipes.md     # 阶段 5 部署手册：按类型的部署选项/代价/上线检查清单
+└── .github/workflows/selftest.yml  # CI：push 时 ubuntu+windows 双矩阵自动跑 selftest
 ```
 
 ## 适用与限制
