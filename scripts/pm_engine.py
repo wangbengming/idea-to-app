@@ -314,13 +314,18 @@ def cmd_dispatch(args):
     docs_list = "\n".join(
         f"     - {app_dir / '团队文档' / DOC_FILES[d]}" for d in info["docs"]
     ) or "     - （无上游文档，以用户原话为准）"
+    manuals_list = "\n".join(
+        f"     - {SKILL_ROOT / 'references' / m}" for m in info.get("manuals", [])
+    ) or "     - （本岗无额外手册，按【产出】要求执行）"
     brief = BRIEF_HEADER.format(
         title=info["title"],
         name=state["name"],
-        scale=f"{state['scale']}（{type_profile(vtype)["label"]}）",
+        scale=f"{state['scale']}（{type_profile(vtype)['label']}）",
         app_dir=app_dir,
+        skill_root=SKILL_ROOT,
         task="<一句话说明本次要做什么>",
         docs_list=docs_list,
+        manuals_list=manuals_list,
         output=info["output"],
         must_list="\n".join(f"  {i+1}. {m}" for i, m in enumerate(must)),
         bounds_list="\n".join(f"  {i+1}. {b}" for i, b in enumerate(info["bounds"])),
@@ -1175,6 +1180,9 @@ def cmd_selftest(args):
     for role, info in DISPATCH.items():
         check(f"契约[派工] {role} 上游文档编号合法", set(info["docs"]) <= set(DOC_FILES))
         check(f"契约[派工] {role} 类型增量键合法", set(info.get("type_must", {})) <= set(TYPE_PROFILES))
+        check(f"契约[派工] {role} 手册清单非空", bool(info.get("manuals")))
+        for m in info.get("manuals", []):
+            check(f"契约[派工] {role} 手册存在 {m}", (SKILL_ROOT / "references" / m).exists())
 
     # —— B. 全流程回放（tool · medium）——
     with tempfile.TemporaryDirectory(prefix="pm-selftest-") as td:
