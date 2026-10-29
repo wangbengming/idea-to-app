@@ -96,10 +96,11 @@ idea-to-app/
 │   ├── app-template.html     # 网页样板：自包含/中文/大按钮/备份恢复骨架
 │   ├── admin-template.py     # 后台骨架（方案 E）：登录/会话/角色权限/增删改查/备份，纯标准库
 │   └── templates/            # 文档模板：00-规划书 + 00-当前功能清单 + 变更提案 + 01~07 + data/admin/front 类型差异版
-├── references/               # 十册按需加载手册
+├── references/               # 十一册按需加载手册
 │   ├── phases.md             # 流程编排：五阶段 + 探索模式 + 持续迭代（变更提案制）
 │   ├── project-types.md      # 四类项目手册：归类判定/阶段差异/AC 写法/红线/常见坑
-│   ├── team-roles.md         # 职责边界矩阵 + 角色卡（含 fe/be） + 退回机制 + 派工模板
+│   ├── replica-playbook.md   # 对标复刻手册："做个像剪映/像XX的"——标杆拆解/场景裁剪/重计算能力速查/量化验收
+│   ├── team-roles.md         # 职责边界矩阵 + 角色卡（含 fe/be） + 退回机制 + 派工模板 + 调度纪律
 │   ├── tech-recipes.md       # 交付形态 A/B/C/E + 现代技术栈基线 + 开源优先 + 能力边界/性能预算
 │   ├── design-craft.md       # 设计工艺册：五步法/风格族谱/五套令牌/区块模式库
 │   ├── design-baseline.md    # 设计基线册：防 AI 味禁令清单 + 三证明审计法

@@ -19,7 +19,9 @@
 约束与边界（写代码前读一遍 03-技术方案）：
   - 界面与文案全部中文；样式可直接改，但结构（校验点/备份）保留
   - 仅限本机或可信内网使用：未做 HTTPS 与 CSRF 防护，不能暴露到公网
-  - 不引任何第三方库、不引 CDN 外链；新页面照 _page() + route() 的既有模式加
+  - 禁 CDN 外链；本骨架零依赖，但实体页 ≥3 或交互密集时可按 03-技术方案
+    的「组件与框架引入阶梯」本地 vendor 组件库（localhost 无 ESM 限制），
+    服务端结构（路由/校验/会话/备份）不动；新页面照 _page() + route() 的既有模式加
 """
 import hashlib
 import html
@@ -156,6 +158,22 @@ def route(method, path, roles=None):
 
 # ---------- 页面骨架（样式可改，结构保留） ----------
 
+# 两步确认（体感工艺标准写法之一）：删除按钮第一次点击只变文案、3 秒内再点才真提交——
+# 防误删又不打断操作流，不用系统 confirm()。新加的删除按钮带上 class="del2" 即可继承。
+# 取舍说明：design-baseline 的最优解是"软删除 + 撤销条"（数据在库里恢复容易）；骨架为保持轻演示
+# 两步确认的兜底模式——02/03 要求撤销时按基线升级软删除，不要照抄本模式当上限。
+DEL2_JS = """<script>
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("button.del2");
+  if (!b) return;
+  if (b.dataset.armed === "1") return;                    /* 第二次点击：放行提交 */
+  e.preventDefault();
+  b.dataset.armed = "1"; b.dataset.label = b.textContent;
+  b.textContent = "确认删除？";
+  setTimeout(function () { b.dataset.armed = ""; b.textContent = b.dataset.label; }, 3000);
+});
+</script>"""
+
 def _page(title, body, user=None, msg=""):
     nav_admin = '<a href="/users">用户管理</a>' if user and user["role"] == "admin" else ""
     msg_html = f'<div class="msg">{html.escape(msg)}</div>' if msg else ""
@@ -197,7 +215,7 @@ label{{display:block;margin:12px 0 4px;font-size:14px;font-weight:500;color:var(
 <a href="/password">修改密码</a>
 <form method="post" action="/backup" style="display:inline"><button class="btn gray" style="width:100%;text-align:left">备份数据</button></form>
 <a href="/logout">退出登录</a></div>
-<div class="main">{msg_html}{body}</div></div></body></html>"""
+<div class="main">{msg_html}{body}</div></div>{DEL2_JS}</body></html>"""
 
 
 def _login_page(msg="", username=""):
@@ -285,7 +303,7 @@ def users_page(req):
         else:
             action = ('<form method="post" action="/users/del" style="display:inline">'
                       f'<input type="hidden" name="id" value="{r["id"]}">'
-                      '<button class="btn red">删除</button></form>')
+                      '<button class="btn red del2">删除</button></form>')
         trs.append(f"<tr><td>{html.escape(r['username'])}</td>"
                    f"<td>{'管理员' if r['role'] == 'admin' else '员工'}</td>"
                    f"<td>{action}</td></tr>")
@@ -366,7 +384,7 @@ def items_page(req):
         f"<td><a href='/items/edit?id={r['id']}'>改</a> "
         f"<form method=post action=/items/del style='display:inline'>"
         f"<input type=hidden name=id value={r['id']}>"
-        f"<button class='btn red'>删</button></form></td></tr>"
+        f"<button class='btn red del2'>删</button></form></td></tr>"
         for r in rows)
     empty = '<p>还没有数据，点右上角"新增一条"开始记录。</p>' if not rows else ""
     return 200, _page("内容管理", f"""<h1>内容管理</h1>

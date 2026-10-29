@@ -54,7 +54,10 @@ def load_state(app_dir):
     f = app_dir / "团队文档" / "00-项目状态.json"
     if not f.exists():
         fail(f"状态文件缺失：{f}（该项目可能未 init）")
-    return json.loads(f.read_text(encoding="utf-8")), f
+    try:
+        return json.loads(f.read_text(encoding="utf-8")), f
+    except json.JSONDecodeError as e:
+        fail(f"状态文件不是合法 JSON：{f}（第 {e.lineno} 行 {e.msg}）——手工编辑过？修好再继续，或删掉重新 init（会丢门禁与查验记录）")
 
 
 def save_state(app_dir, state, f):
@@ -204,6 +207,8 @@ def template_for(vtype, fname):
 
 def cmd_init(args):
     parent = Path(args.dir).resolve() if args.dir else Path.cwd()
+    if re.search(r'[\\/:*?"<>|]|\.\.', args.name):
+        fail('应用名不能包含 / \\ : * ? " < > | 或 ..（会导致文件夹位置错乱）——换个纯名字，如：我的小助手')
     app_dir = parent / args.name
     if app_dir.exists():
         fail(f"目录已存在：{app_dir}")
@@ -241,7 +246,7 @@ def cmd_init(args):
     }
     save_state(app_dir, state, app_dir / "团队文档" / "00-项目状态.json")
     print(f"✅ 项目已初始化：{app_dir}")
-    print(f"   类型：{type_profile(vtype)["label"]}；编制：{scale}；阶段：{PHASE_LABEL[state['phase']]}")
+    print(f"   类型：{type_profile(vtype)['label']}；编制：{scale}；阶段：{PHASE_LABEL[state['phase']]}")
     if scale == "small":
         print("   小型编制：不留团队文档流程，直接开发。")
         print("   下一步：开发完成后运行 verify + gate G3 检查交付物，再 release。")
@@ -260,7 +265,7 @@ def cmd_status(args):
     app_dir = find_project(args.dir)
     state, _ = load_state(app_dir)
     vtype = state.get("type", "tool")
-    print(f"项目：{state['name']}（{type_profile(vtype)["label"]} · {state['scale']}）")
+    print(f"项目：{state['name']}（{type_profile(vtype)['label']} · {state['scale']}）")
     print(f"阶段：{PHASE_LABEL.get(state['phase'], state['phase'])}  迭代：第 {state['iteration']} 轮")
     t00 = read_doc(app_dir, "00")
     if t00:
@@ -495,6 +500,14 @@ def check_html_text(name, t, errors, warns, external="all", check_viewport=True,
     legacy = sorted(legacy)
     if legacy:
         errors.append(f"{name}：发现过时技术「{'、'.join(legacy)}」（现代技术栈基线禁用：用原生 DOM API、fetch、模板字符串等当前主流写法替代，见 tech-recipes.md「现代技术栈基线」）")
+    # 体感与交互工艺（tech-recipes）：系统弹窗与内联事件机器拦截（教学注释不拦——先剥 HTML 注释）
+    tc = re.sub(r"<!--.*?-->", "", t, flags=re.S)
+    dialogs = sorted({m.group(1).lower() for m in re.finditer(r"\b(confirm|alert|prompt)\s*\(", tc)})
+    if dialogs:
+        errors.append(f"{name}：发现系统弹窗「{'、'.join(dialogs)}(」（体感禁令：阻塞且与页面脱节——改用页面内 toast/撤销条/<dialog>，见 tech-recipes.md「体感与交互工艺」）")
+    inline_ev = re.findall(r"""<\w+[^>]*?\son(?:click|submit|change|input|keyup|keydown|load|error|mouseover|dblclick)\s*=""", tc, flags=re.I)
+    if inline_ev:
+        errors.append(f"{name}：{len(inline_ev)} 处内联事件（onclick= 等）——事件绑定写在 JS（addEventListener/事件委托），innerHTML 拼 onclick 是逻辑混乱之源，见 tech-recipes.md「体感与交互工艺」")
     # file:// 兼容：ES module 外部文件双击打开会被浏览器拦截（本地组件须用 UMD/IIFE 发行版；服务端形态不受限）
     if not esm_ok:
         esm_ext = re.findall(r"""<script[^>]*\btype=["']module["'][^>]*\bsrc=["'][^"']+["']""", t, flags=re.I)
@@ -682,6 +695,10 @@ def gate_checks_g2(app_dir, state):
             checks.append((not extra, "规划未私加 PRD 之外的 AC" + (f"（多了 {extra}）" if extra else "")))
             checks.append((not must or not uncovered,
                            f"规划覆盖全部第一版 AC" + (f"，缺 {uncovered}" if uncovered else "")))
+    # 产品先审留痕（phases 阶段2）：中型以上必经，机器校验存在，防跳过先审直达用户确认
+    if state.get("scale", "small") != "small":
+        checks.append(((app_dir / "团队文档" / "派工" / "pm-审核-设计.md").exists(),
+                       "产品先审留痕存在（团队文档/派工/pm-审核-设计.md，中型以上必经，见 phases 阶段2）"))
     return checks
 
 
@@ -740,6 +757,10 @@ def gate_checks_g3(app_dir, state):
             nums = {fid_num(fid) for fid, _, _ in base}
             bad = sorted(f for f in ({fid for fid, _, _ in modified} | set(removed)) if fid_num(f) not in nums)
             checks.append((not bad, f"变更「{c['name']}」：修改/移除的编号都在功能清单里" + (f"（未知 {bad}）" if bad else "")))
+    # 产品先审留痕（phases 阶段3）：中型以上必经，机器校验存在，防跳过先审直达用户意见关
+    if state.get("scale", "small") != "small":
+        checks.append(((app_dir / "团队文档" / "派工" / "pm-审核-技术.md").exists(),
+                       "产品先审留痕存在（团队文档/派工/pm-审核-技术.md，中型以上必经，见 phases 阶段3）"))
     return checks
 
 
@@ -961,6 +982,8 @@ ST_DOC01 = """# 01 需求文档-PRD（selftest 夹具）
 打开 → 点大按钮 → 完成。
 ## 同类调研
 参考两款记账工具。
+## 产品特色
+差异化：点大按钮即记完。招牌记忆点：一键记一笔。最不像：不做成表格软件。
 ## 必须有
 - [ ] AC-01 记一笔 ≤2 次点击
 - [ ] AC-02 列表 1 屏显示最近 10 条
@@ -1009,8 +1032,10 @@ ST_DOC00 = """# 00 项目规划书（selftest 夹具）
 
 ST_DOC03 = """# 03 技术方案（selftest 夹具）
 ## 选型说明
-结论：方案 A 单文件网页。需求匹配：双击即用。主流依据：原生 HTML/CSS/JS。否决项：引 React 需构建链。
+结论：方案 A 单文件网页，引入阶梯 L0 纯手写。需求匹配：双击即用。主流依据：原生 HTML/CSS/JS。否决项：引 React 需构建链。
 大白话版本：一个双击就能用的网页，不用装任何东西。
+## 逻辑架构
+状态清单：items 数组单存 localStorage；数据流：事件→改 items→render()；边界：空输入必填拦截、恢复文件校验；分层：数据/渲染/事件三段。
 ## 用户意见
 用户：可以，就这么做。
 """
@@ -1206,6 +1231,10 @@ def cmd_selftest(args):
         wdoc("02", ST_DOC02)
         wdoc("00", ST_DOC00)
         rc, out = run("gate", "G2")
+        check("G2 拦截缺先审留痕（中型以上）", rc != 0 and "先审" in out, out)
+        (D / "派工").mkdir(parents=True, exist_ok=True)
+        (D / "派工" / "pm-审核-设计.md").write_text("审核三查通过（selftest 夹具）", encoding="utf-8")
+        rc, out = run("gate", "G2")
         check("G2 通过", rc == 0, out)
         wdoc("00", ST_DOC00 + "\n### M2 私货\n- 包含 AC：AC-99\n")
         rc, out = run("gate", "G2")
@@ -1225,8 +1254,19 @@ def cmd_selftest(args):
         html.write_text(ST_HTML.replace("</body>", '<script src="lib/jquery.min.js"></script></body>'), encoding="utf-8")
         rc, out = run("verify")
         check("verify 拦截过时技术/缺失本地引用", rc != 0, out)
+        html.write_text(ST_HTML.replace('id="add">记一笔', 'id="add" onclick="go()">记一笔')
+                        .replace("b.textContent = '已记 1 笔'; });", "alert('已记 1 笔'); });"), encoding="utf-8")
+        rc, out = run("verify")
+        check("verify 拦截系统弹窗/内联事件（体感禁令）", rc != 0 and "体感" in out, out)
         html.write_text(ST_HTML, encoding="utf-8")
+        wdoc("03", ST_DOC03.replace("## 逻辑架构\n状态清单：items 数组单存 localStorage；数据流：事件→改 items→render()；边界：空输入必填拦截、恢复文件校验；分层：数据/渲染/事件三段。\n", ""))
+        rc, out = run("gate", "G3")
+        check("G3 拦截缺「逻辑架构」的 03", rc != 0 and "逻辑架构" in out, out)
+        (D / "派工" / "pm-审核-技术.md").unlink(missing_ok=True)
         wdoc("03", ST_DOC03)
+        rc, out = run("gate", "G3")
+        check("G3 拦截缺先审留痕（中型以上）", rc != 0 and "先审" in out, out)
+        (D / "派工" / "pm-审核-技术.md").write_text("审核三查通过（selftest 夹具）", encoding="utf-8")
         rc, out = run("gate", "G3")
         check("G3 通过", rc == 0, out)
         rc, out = run("gate", "G4")
