@@ -85,6 +85,7 @@
 - **外部资源**：`src/href` 指向 http(s) 即拦（自包含红线）；本地引用必须真实存在于应用文件夹（防白屏）
 - **过时技术**：jQuery 按脚本块粒度拦——块内含 `typeof jQuery`/`window.jQuery` 检测形态整块放行，其余照拦；另有 `$.ajax(`、`XMLHttpRequest`、`document.write(`
 - **体感禁令**：`confirm(`/`alert(`/`prompt(` 系统弹窗与内联事件（`onclick=` 等拼在标签或模板字符串里）即拦——先剥 HTML 注释再查（教学注释里的字样不拦）
+- **代码风格**：`var` 声明与 `debugger` 语句即拦；`console.log` 类调试输出为提醒级（warns）
 - **ES module**：file:// 形态（tool/front/data）拦 `type="module"` 外部引用；admin（localhost）豁免
 - **许可证留痕**：出现 `.min.js` 或 `lib/`、`vendor/` 本地组件时，G3 校验 03 含"许可证"字样
 - **产品先审留痕**：中型以上（scale ≠ small），G2 校验 `团队文档/派工/pm-审核-设计.md` 存在、G3 校验 `团队文档/派工/pm-审核-技术.md` 存在（phases 阶段 2/3 的先审关卡机器化）

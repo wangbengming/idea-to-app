@@ -8,7 +8,7 @@
 
 技术栈必须是**当前主流的做法，按实际需求做最优选择**。"零构建、双击交付"既不是退回过时技术的理由，也不是手搓一切的理由——选型的第一反应是找现成开源方案**拿来二开**（见下文「开源优先」节），现代原生只在没有合身轮子时登场。两层约束：
 
-**机器拦截层（verify 直接打回，不商量）**：交付物 HTML 里出现以下特征即打回——`jquery`（含脚本引用）、jQuery 独有签名（`$.ajax(` / `$.get(` / `$.post(` / `$.fn.` / `$(document).ready`）、`XMLHttpRequest`、`document.write(`、**系统弹窗调用（`confirm(` / `alert(` / `prompt(`——教学注释除外，机器先剥注释再查）**、**内联事件（`onclick=` 等拼在标签或模板字符串里）**。替代：jQuery → 原生 DOM API（`querySelector`/`classList`）；`XMLHttpRequest` → `fetch` + `async/await`；`document.write` → 模板字符串 + `textContent`/`innerHTML`；系统弹窗 → 页面内 toast/撤销条/`<dialog>`；内联事件 → `addEventListener`/事件委托。注意：裸 `$(...)` **不拦**——现代常有人写 `const $ = q => document.querySelector(q)` 简写，属合法主流。
+**机器拦截层（verify 直接打回，不商量）**：交付物 HTML 里出现以下特征即打回——`jquery`（含脚本引用）、jQuery 独有签名（`$.ajax(` / `$.get(` / `$.post(` / `$.fn.` / `$(document).ready`）、`XMLHttpRequest`、`document.write(`、**系统弹窗调用（`confirm(` / `alert(` / `prompt(`——教学注释除外，机器先剥注释再查）**、**内联事件（`onclick=` 等拼在标签或模板字符串里）**、**`var` 声明**、**`debugger` 语句**；另有提醒级：`console.log` 类调试输出残留。替代：jQuery → 原生 DOM API（`querySelector`/`classList`）；`XMLHttpRequest` → `fetch` + `async/await`；`document.write` → 模板字符串 + `textContent`/`innerHTML`；系统弹窗 → 页面内 toast/撤销条/`<dialog>`；内联事件 → `addEventListener`/事件委托；`var` → `const`/`let`。注意：裸 `$(...)` **不拦**——现代常有人写 `const $ = q => document.querySelector(q)` 简写，属合法主流。
 
 **评审判断层（技术负责人动笔前逐项过）**：
 
@@ -198,6 +198,23 @@ E2 的要义：界面的专业度来自真正的前端工程（组件库 + 构�
 **键盘与焦点**：表单 Enter 提交、Esc 关弹层、Tab 顺序合理、焦点环可见、弹层焦点圈定关闭归位。
 
 **列表性能**：百条以内的小列表全量重渲染可接受（样板即此写法，别过度工程）；超过 100 条 → 分页/虚拟化，且数据更新做**局部渲染**（或升 L3 框架吃 diff），不整表重建 DOM。
+
+## 代码风格基线（严格把控——机器拦一半，G3 评审拦另一半）
+
+交付代码是要长期维护的资产，不是一次性脚本；风格以样板（`app-template.html` / `admin-template.py`）为基准。
+
+**JS**：
+- 只用 `const`/`let`——**`var` 声明 verify 机器直接拦**（函数作用域是状态混乱之源）；箭头函数、模板字符串、`async/await`；
+- 命名有意义：函数动词开头（`loadItems`/`renderList`），禁 `a1`/`tmp2`/拼音缩写；常量全大写下划线；
+- 函数 ≤50 行、只做一件事；同一段逻辑出现第 2 次就提成函数；
+- 单文件按 数据层/逻辑/渲染/事件 四段分节注释；**无死代码、无注释掉的旧代码、无 console.log/debugger 残留**（debugger 机器拦；console 类输出交付前清，**debugger 语句 verify 机器拦**）；
+- 事件统一 addEventListener/委托（内联事件机器拦）。
+
+**Python**：PEP 8 风格、f-string、pathlib、函数 snake_case、`if __name__ == "__main__":` 入口、模块分节注释；异常不吞（中文提示"哪里错、跳过了什么、结果在哪" + 非零退出码）。
+
+**HTML/CSS**：语义化标签；样式只取令牌（禁裸值）；类名 kebab-case（`item-list`，不 `itemList`）；一个组件一段 CSS，按页面结构顺序排列。
+
+**G3 代码走查动作**：对照本节 + execution-craft 代码纪律扫全部主文件——var/残留输出/死代码/复制粘贴段/随意命名 = 打回开发改，**不现场代改**（保持"谁产出谁修复"）。
 
 ## 多端与部署自主性（"在哪能用、归谁管"两条底线）
 

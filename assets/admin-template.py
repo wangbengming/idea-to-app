@@ -163,14 +163,14 @@ def route(method, path, roles=None):
 # 取舍说明：design-baseline 的最优解是"软删除 + 撤销条"（数据在库里恢复容易）；骨架为保持轻演示
 # 两步确认的兜底模式——02/03 要求撤销时按基线升级软删除，不要照抄本模式当上限。
 DEL2_JS = """<script>
-document.addEventListener("click", function (e) {
-  var b = e.target.closest("button.del2");
+document.addEventListener("click", (e) => {
+  const b = e.target.closest("button.del2");
   if (!b) return;
   if (b.dataset.armed === "1") return;                    /* 第二次点击：放行提交 */
   e.preventDefault();
   b.dataset.armed = "1"; b.dataset.label = b.textContent;
   b.textContent = "确认删除？";
-  setTimeout(function () { b.dataset.armed = ""; b.textContent = b.dataset.label; }, 3000);
+  setTimeout(() => { b.dataset.armed = ""; b.textContent = b.dataset.label; }, 3000);
 });
 </script>"""
 

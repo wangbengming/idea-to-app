@@ -508,6 +508,13 @@ def check_html_text(name, t, errors, warns, external="all", check_viewport=True,
     inline_ev = re.findall(r"""<\w+[^>]*?\son(?:click|submit|change|input|keyup|keydown|load|error|mouseover|dblclick)\s*=""", tc, flags=re.I)
     if inline_ev:
         errors.append(f"{name}：{len(inline_ev)} 处内联事件（onclick= 等）——事件绑定写在 JS（addEventListener/事件委托），innerHTML 拼 onclick 是逻辑混乱之源，见 tech-recipes.md「体感与交互工艺」")
+    # 代码风格基线（tech-recipes）：var 声明与 debugger 语句机器拦；调试输出残留提醒
+    if re.search(r"\bvar\s+[A-Za-z_$]", tc):
+        errors.append(f"{name}：发现 var 声明——现代基线只用 const/let（var 的函数作用域是状态混乱之源），见 tech-recipes.md「代码风格基线」")
+    if re.search(r"\bdebugger\b", tc):
+        errors.append(f"{name}：发现 debugger 语句残留——交付物禁断点语句，见 tech-recipes.md「代码风格基线」")
+    if re.search(r"\bconsole\.(?:log|debug|info)\s*\(", tc):
+        warns.append(f"{name}：有 console.log 类调试输出残留——交付前清掉或换成有意义的中文提示，见 tech-recipes.md「代码风格基线」")
     # file:// 兼容：ES module 外部文件双击打开会被浏览器拦截（本地组件须用 UMD/IIFE 发行版；服务端形态不受限）
     if not esm_ok:
         esm_ext = re.findall(r"""<script[^>]*\btype=["']module["'][^>]*\bsrc=["'][^"']+["']""", t, flags=re.I)
@@ -1258,6 +1265,10 @@ def cmd_selftest(args):
                         .replace("b.textContent = '已记 1 笔'; });", "alert('已记 1 笔'); });"), encoding="utf-8")
         rc, out = run("verify")
         check("verify 拦截系统弹窗/内联事件（体感禁令）", rc != 0 and "体感" in out, out)
+        html.write_text(ST_HTML.replace("b.addEventListener('click', () => { b.textContent = '已记 1 笔'; });",
+                                        "var n = 1; b.addEventListener('click', () => { debugger; b.textContent = '已记 ' + n + ' 笔'; });"), encoding="utf-8")
+        rc, out = run("verify")
+        check("verify 拦截 var 声明/debugger 残留（代码风格基线）", rc != 0 and ("var" in out or "debugger" in out), out)
         html.write_text(ST_HTML, encoding="utf-8")
         wdoc("03", ST_DOC03.replace("## 逻辑架构\n状态清单：items 数组单存 localStorage；数据流：事件→改 items→render()；边界：空输入必填拦截、恢复文件校验；分层：数据/渲染/事件三段。\n", ""))
         rc, out = run("gate", "G3")
